@@ -15,6 +15,8 @@ var (
 	ErrPasswordMissingDigit         = cerr.New("password is missing digit", cerr.Invalid)
 	ErrPasswordMissingSpecialSymbol = cerr.New("password is missing special digit", cerr.Invalid)
 	ErrPasswordInvalidCharacters    = cerr.New("password has invalid characters", cerr.Invalid)
+	ErrUserAlreadyExist             = cerr.New("user already exists", cerr.Conflict)
+	ErrFailedToCreateUser           = cerr.New("failed to create user", cerr.Internal)
 )
 
 type UserCredentials struct {
