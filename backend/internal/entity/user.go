@@ -6,14 +6,14 @@ import (
 	"github.com/siamionv/finy/internal/generated/openapi"
 )
 
-type PublicUser struct {
+type User struct {
 	ID        int
 	Username  string
 	IconURL   *string
 	CreatedAt time.Time
 }
 
-func (u PublicUser) ToOpenAPI() openapi.User {
+func (u User) ToOpenAPI() openapi.User {
 	return openapi.User{
 		Id:        u.ID,
 		Username:  u.Username,

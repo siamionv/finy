@@ -40,8 +40,9 @@ func run() int {
 	}
 
 	srv := httpapi.New(httpapi.Deps{
-		Config: cfg.HTTP,
-		Logger: deps.Logger,
+		Config:      cfg.HTTP,
+		Logger:      deps.Logger,
+		UserService: deps.Services.User,
 	})
 
 	if err := srv.Run(ctx); err != nil {

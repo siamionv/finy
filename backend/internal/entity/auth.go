@@ -24,6 +24,11 @@ type UserCredentials struct {
 	Password string
 }
 
+type CreateUser struct {
+	Username     string
+	PasswordHash string
+}
+
 func (c *UserCredentials) FromOpenAPI(req openapi.RegisterUserRequest) {
 	c.Username = req.Username
 	c.Password = req.Password

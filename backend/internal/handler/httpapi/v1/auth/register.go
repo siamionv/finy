@@ -11,7 +11,6 @@ import (
 )
 
 // TODO: add logging
-// TODO: implement service layer for RegisterUSer
 func (h *Handler) RegisterUser(c echo.Context) error {
 	var request openapi.RegisterUserRequest
 	if err := c.Bind(&request); err != nil {
@@ -21,7 +20,7 @@ func (h *Handler) RegisterUser(c echo.Context) error {
 	var credentials entity.UserCredentials
 	credentials.FromOpenAPI(request)
 
-	publicUser, err := h.userSvc.CreateUser(credentials)
+	publicUser, err := h.userSvc.CreateUser(c.Request().Context(), credentials)
 	if err != nil {
 		return h.handleCreateUserError(c, err)
 	}

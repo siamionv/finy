@@ -23,17 +23,25 @@ const (
 	loggerFormatJSON = "json"
 )
 
+// Dependencies is the composition root: infrastructure on top, the assembled
+// object graph below it. Callers get Services, never the repositories that
+// back them.
 type Dependencies struct {
 	Config *config.Config
 	Logger *slog.Logger
 	DB     *pgxpool.Pool
+
+	Services Services
 }
 
 func MustDependencies(ctx context.Context, config *config.Config) Dependencies {
+	db := mustDB(ctx, config.Database)
+
 	return Dependencies{
-		Config: config,
-		Logger: mustLogger(ctx, config.Logger),
-		DB:     mustDB(ctx, config.Database),
+		Config:   config,
+		Logger:   mustLogger(ctx, config.Logger),
+		DB:       db,
+		Services: newServices(newRepositories(db)),
 	}
 }
 

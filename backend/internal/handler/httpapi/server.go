@@ -13,16 +13,23 @@ import (
 
 	"github.com/siamionv/finy/internal/config"
 	"github.com/siamionv/finy/internal/generated/openapi"
+	"github.com/siamionv/finy/internal/handler/httpapi/v1/auth"
 )
 
 // Deps is everything the HTTP layer needs, declared by the HTTP layer itself.
 // Handler groups get their service as a narrow interface, so nothing under
 // this package can reach past a service into the database.
 //
-// It grows by one field per handler group.
+// Service fields are typed as the owning group's interface, not as the
+// concrete business type: httpapi never imports business, and the composition
+// root is the only place the two sides meet.
+//
+// It grows by one field per service.
 type Deps struct {
 	Config config.HTTP
 	Logger *slog.Logger
+
+	UserService auth.UserService
 }
 
 // Server owns the echo instance and its lifecycle. Echo does not escape this
