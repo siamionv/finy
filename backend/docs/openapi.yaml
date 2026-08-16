@@ -156,6 +156,7 @@ components:
       type: string
       description: Name of the request parameter that failed validation.
       enum:
+        - payload
         - username
         - password
     ValidationErrorCode:
@@ -163,6 +164,7 @@ components:
       type: string
       description: Specific rule that a field failed.
       enum:
+        - payload_invalid_json
         - username_too_short
         - username_invalid_start
         - username_invalid_characters
@@ -191,6 +193,9 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/ValidationError'
+      required:
+        - error
+        - data
     SystemComponent:
       title: SystemComponent
       type: string
