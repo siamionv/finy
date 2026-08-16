@@ -1,0 +1,12 @@
+logger:
+  level: debug
+  format: text
+  add_source: true
+
+database:
+  username: finy_user
+  password: 9Q9h7HbMkR3+Fzc1riyGWA==
+  host: localhost
+  port: 5432
+  name: finy
+  migrations: ./migrations

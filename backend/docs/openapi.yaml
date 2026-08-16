@@ -1,0 +1,150 @@
+openapi: 3.1.0
+info:
+  title: finy-backend
+  version: '1.0'
+  description: ''
+  summary: Specification for Finy backend API
+  contact:
+    name: 'Siamion Vayavoda'
+servers:
+  - url: 'http://localhost:8080'
+    description: local
+paths:
+  /api/health:
+    get:
+      summary: Check Health Status
+      tags:
+        - General
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopedHealthStatus'
+        '500':
+          description: Server is unhealthy
+      operationId: check-health-status
+      description: Check health status of backend API and provide info about degraded endpoints if some.
+    servers: []
+  /api/v1/auth/register:
+    post:
+      summary: Register User
+  /api/v1/auth/login:
+    post:
+      summary: Login to user account
+  /api/v1/auth/refresh:
+    post:
+      summary: Refresh user login creds
+  /api/v1/users/me:
+    get:
+      summary: Get Current User Info
+      tags:
+        - Users
+      responses:
+        '200':
+          description: User Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopedUser'
+        '404':
+          description: User Not Found
+      operationId: get-current-user-info
+      description: Retrieve the information of the user based on authorization.
+      security:
+        - jwt-auth: []
+    servers: []
+components:
+  schemas:
+    Envelope:
+      title: Envelope
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/EnvelopeStatus'
+        data:
+          type: object
+        error:
+          type: string
+    EnvelopeStatus:
+      title: EnvelopeStatus
+      type: string
+      enum:
+        - success
+        - failure
+    User:
+      title: User
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Unique identifier for the given user.
+        username:
+          type: string
+          description: User's nickname that identifies them.
+        icon_url:
+          type: string
+          description: Path to the user avatar icon.
+        created_at:
+          type: string
+          description: Timestamp when user firstly signed up.
+      required:
+        - id
+        - username
+        - created_at
+      examples:
+        - id: 142
+          username: johndoe
+          icon_url: https://finy.by/icons/default.png
+          createdAt: '2019-08-24'
+    EnvelopedUser:
+      title: EnvelopedUser
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/User'
+    SystemComponent:
+      title: SystemComponent
+      type: string
+      enum:
+        - "postgres"
+    HealthStatus:
+      title: HealthStatus
+      type: object
+      properties:
+        is_healthy:
+          type: boolean
+          description: Flag that shows that all API componenets are healthy or not.
+        degraded_components:
+          type: array
+          description: List of degraded system components.
+          items:
+            $ref: "#/components/schemas/SystemComponent"
+        timestamp:
+          type: string
+          description: Time when health check was performed.
+      required:
+        - is_healthy
+        - timestamp
+    EnvelopedHealthStatus:
+      title: EnvelopedHealthStatus
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/HealthStatus'
+
+
+  securitySchemes:
+    jwt-auth:
+      type: http
+      scheme: bearer
+  responses:
+    ResponseStatus:
+      description: ''

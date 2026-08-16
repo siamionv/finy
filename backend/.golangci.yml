@@ -1,0 +1,69 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true
+
+linters:
+  enable:
+    # Error checking
+    - errcheck
+    - errorlint
+
+    # Code quality
+    - ineffassign
+    - unused
+    - unconvert
+    - unparam
+
+    # Security
+    - gosec
+
+    # Complexity
+    - gocyclo
+
+    # Performance
+    - prealloc
+
+    # Context
+    - contextcheck
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+
+    errcheck:
+      check-blank: false
+      check-type-assertions: false
+
+    gosec:
+      severity: medium
+      confidence: medium
+
+  exclusions:
+    rules:
+      # Ignore long lines in generated code
+      - path: _gen\.go$
+        linters:
+          - lll
+
+      # Allow underscores and unused params in test files
+      - path: _test\.go$
+        linters:
+          - unused
+          - unparam
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/siamionv/finy

@@ -1,0 +1,25 @@
+repos:
+  - repo: local
+    hooks:
+      - id: backend-fmt
+        name: backend fmt (make fmt)
+        entry: bash -c 'cd backend && make fmt'
+        language: system
+        files: ^backend/.*\.go$
+        pass_filenames: false
+
+      - id: backend-lint
+        name: backend lint (make lint)
+        entry: bash -c 'cd backend && make lint'
+        language: system
+        files: ^backend/.*\.go$
+        pass_filenames: false
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
