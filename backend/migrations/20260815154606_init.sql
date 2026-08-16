@@ -4,7 +4,7 @@ CREATE TABLE users (
     username VARCHAR(255) UNIQUE NOT NULL,
     icon_url VARCHAR(255),
     password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE currencies (
@@ -34,7 +34,7 @@ CREATE TABLE events (
     description VARCHAR(255),
     delta DECIMAL NOT NULL,
     currency_id INTEGER NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (currency_id) REFERENCES currencies(id)
 );

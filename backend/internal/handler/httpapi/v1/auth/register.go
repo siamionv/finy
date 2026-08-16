@@ -27,7 +27,12 @@ func (h *Handler) RegisterUser(c echo.Context) error {
 
 	response := user.ToOpenAPI()
 
-	return c.JSON(http.StatusCreated, response)
+	// Enveloped like every other response from this endpoint: a client that
+	// switches on `status` must not have to special-case the success path.
+	return c.JSON(http.StatusCreated, openapi.EnvelopedUser{
+		Status: openapi.Success,
+		Data:   &response,
+	})
 }
 
 var validationRules = []struct {

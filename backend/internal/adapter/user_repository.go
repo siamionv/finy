@@ -39,6 +39,7 @@ func (r *UserRepository) InsertUser(
 	dto entity.CreateUser,
 ) (*entity.User, error) {
 	sql, args, err := sq.Insert(usersTable).
+		PlaceholderFormat(sq.Dollar).
 		Columns(usersColUsername, usersColPasswordHash).
 		Values(dto.Username, dto.PasswordHash).
 		Suffix(fmt.Sprintf("RETURNING %s, %s, %s, %s", usersColID, usersColUsername, usersColIconURL, usersColCreatedAt)).

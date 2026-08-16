@@ -44,19 +44,20 @@ func New(msg string, errs ...error) *Error {
 	return e
 }
 
-// With returns a copy of e with kv appended to its fields. It never mutates the
+// With returns a new error carrying kv that wraps e. It never mutates the
 // receiver: predefined errors are shared package-level values, and mutating
 // them would pollute every user of the package.
+//
+// e is wrapped rather than copied field-by-field, so it stays in the chain and
+// errors.Is(Sentinel.With(...), Sentinel) still holds. That identity is the
+// whole point: Loc and Time are both built on With, so a sentinel stamped at
+// its call site must still answer to the sentinel it was minted from. msg is
+// left empty so Error() renders e's message once rather than twice.
 func (e *Error) With(kv ...any) *Error {
-	c := &Error{msg: e.msg}
-	if len(e.errs) > 0 {
-		c.errs = make([]error, len(e.errs))
-		copy(c.errs, e.errs)
-	}
-	if n := len(e.fields) + len(kv); n > 0 {
-		c.fields = make([]any, 0, n)
-		c.fields = append(c.fields, e.fields...)
-		c.fields = append(c.fields, kv...)
+	c := &Error{errs: []error{e}}
+	if len(kv) > 0 {
+		c.fields = make([]any, len(kv))
+		copy(c.fields, kv)
 	}
 	return c
 }

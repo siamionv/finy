@@ -57,10 +57,15 @@ func New(deps Deps) *Server {
 	e.Server.WriteTimeout = deps.Config.WriteTimeout
 	e.Server.IdleTimeout = deps.Config.IdleTimeout
 
-	e.Use(middleware.Recover())
+	// Order is load-bearing. RequestID first, because loggingMiddleware reads
+	// the id it sets. loggingMiddleware second, so it stays outside Recover and
+	// BodyLimit: it has no defer, so anything those two answer on their own —
+	// a recovered panic, a 413 — would otherwise unwind past its post-handler
+	// block and never reach the structured logger at all.
 	e.Use(middleware.RequestID())
-	e.Use(middleware.BodyLimit(deps.Config.MaxBodySize))
 	e.Use(loggingMiddleware(deps.Logger))
+	e.Use(recoverMiddleware())
+	e.Use(middleware.BodyLimit(deps.Config.MaxBodySize))
 
 	openapi.RegisterHandlers(e, newHandlers(deps))
 
@@ -74,6 +79,12 @@ func New(deps Deps) *Server {
 
 // Run serves until ctx is cancelled, then drains. It blocks.
 func (s *Server) Run(ctx context.Context) error {
+	// Covers the errCh path below, which returns without draining: the base
+	// context outlives a server that never bound, and Handler() means a test
+	// can construct-and-fail repeatedly. Idempotent, so the drain path calling
+	// it too is harmless.
+	defer s.abortInflight()
+
 	errCh := make(chan error, 1)
 
 	go func() {

@@ -126,6 +126,30 @@ func TestWith_Copies(t *testing.T) {
 	}
 }
 
+// Regression: With used to copy msg and errs into a fresh *Error and leave the
+// receiver out of the chain, so a stamped sentinel lost its identity. Loc and
+// Time are both built on With, and every layer above matches sentinels with
+// errors.Is — the endpoint answered 500 to every request because of it.
+func TestWith_KeepsSentinelIdentity(t *testing.T) {
+	sentinel := cerr.New("username is too short", cerr.Invalid)
+	stamped := sentinel.Loc().Time().With("username", "jo")
+
+	if !errors.Is(stamped, sentinel) {
+		t.Error("errors.Is must find the sentinel a stamped error was minted from")
+	}
+	if !errors.Is(stamped, cerr.Invalid) {
+		t.Error("errors.Is must find the kind through the sentinel")
+	}
+	if got, want := stamped.Error(), sentinel.Error(); got != want {
+		t.Errorf("stamping restated the message: got %q, want %q", got, want)
+	}
+
+	other := cerr.New("password is too short", cerr.Invalid)
+	if errors.Is(stamped, other) {
+		t.Error("errors.Is must not match a different sentinel of the same kind")
+	}
+}
+
 func TestWrap_AttachesCauseWithoutRestatingMessage(t *testing.T) {
 	someErr := cerr.New("some error desc", cerr.NotFound)
 	cause := errors.New("boom")
