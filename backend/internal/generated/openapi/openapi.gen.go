@@ -34,15 +34,57 @@ func (e EnvelopeStatus) Valid() bool {
 	}
 }
 
-// Defines values for SystemComponent.
+// Defines values for ValidationErrorCode.
 const (
-	Postgres SystemComponent = "postgres"
+	PasswordInvalidCharacters    ValidationErrorCode = "password_invalid_characters"
+	PasswordMissingDigit         ValidationErrorCode = "password_missing_digit"
+	PasswordMissingLowercase     ValidationErrorCode = "password_missing_lowercase"
+	PasswordMissingSpecialSymbol ValidationErrorCode = "password_missing_special_symbol"
+	PasswordMissingUppercase     ValidationErrorCode = "password_missing_uppercase"
+	PasswordTooShort             ValidationErrorCode = "password_too_short"
+	UsernameInvalidCharacters    ValidationErrorCode = "username_invalid_characters"
+	UsernameInvalidStart         ValidationErrorCode = "username_invalid_start"
+	UsernameTooShort             ValidationErrorCode = "username_too_short"
 )
 
-// Valid indicates whether the value is a known member of the SystemComponent enum.
-func (e SystemComponent) Valid() bool {
+// Valid indicates whether the value is a known member of the ValidationErrorCode enum.
+func (e ValidationErrorCode) Valid() bool {
 	switch e {
-	case Postgres:
+	case PasswordInvalidCharacters:
+		return true
+	case PasswordMissingDigit:
+		return true
+	case PasswordMissingLowercase:
+		return true
+	case PasswordMissingSpecialSymbol:
+		return true
+	case PasswordMissingUppercase:
+		return true
+	case PasswordTooShort:
+		return true
+	case UsernameInvalidCharacters:
+		return true
+	case UsernameInvalidStart:
+		return true
+	case UsernameTooShort:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ValidationErrorFieldName.
+const (
+	Password ValidationErrorFieldName = "password"
+	Username ValidationErrorFieldName = "username"
+)
+
+// Valid indicates whether the value is a known member of the ValidationErrorFieldName enum.
+func (e ValidationErrorFieldName) Valid() bool {
+	switch e {
+	case Password:
+		return true
+	case Username:
 		return true
 	default:
 		return false
@@ -59,13 +101,6 @@ type Envelope struct {
 // EnvelopeStatus defines model for EnvelopeStatus.
 type EnvelopeStatus string
 
-// EnvelopedHealthStatus defines model for EnvelopedHealthStatus.
-type EnvelopedHealthStatus struct {
-	Data   *HealthStatus  `json:"data,omitempty"`
-	Error  *string        `json:"error,omitempty"`
-	Status EnvelopeStatus `json:"status"`
-}
-
 // EnvelopedUser defines model for EnvelopedUser.
 type EnvelopedUser struct {
 	// Data Examples: {"createdAt":"2019-08-24","icon_url":"https://finy.by/icons/default.png","id":142,"username":"johndoe"}
@@ -74,20 +109,21 @@ type EnvelopedUser struct {
 	Status EnvelopeStatus `json:"status"`
 }
 
-// HealthStatus defines model for HealthStatus.
-type HealthStatus struct {
-	// DegradedComponents List of degraded system components.
-	DegradedComponents *[]SystemComponent `json:"degraded_components,omitempty"`
-
-	// IsHealthy Flag that shows that all API componenets are healthy or not.
-	IsHealthy bool `json:"is_healthy"`
-
-	// Timestamp Time when health check was performed.
-	Timestamp string `json:"timestamp"`
+// EnvelopedValidationError defines model for EnvelopedValidationError.
+type EnvelopedValidationError struct {
+	Data   *ValidationError `json:"data,omitempty"`
+	Error  *string          `json:"error,omitempty"`
+	Status EnvelopeStatus   `json:"status"`
 }
 
-// SystemComponent defines model for SystemComponent.
-type SystemComponent string
+// RegisterUserRequest Examples: {"password":"Correct9Horse!","username":"johndoe"}
+type RegisterUserRequest struct {
+	// Password Desired password. Must be at least 8 characters long and contain only latin letters, digits and special symbols, with at least one uppercase letter, one lowercase letter, one digit and one special symbol.
+	Password string `json:"password"`
+
+	// Username Desired username. Must be at least 3 characters long, start with a latin letter, and contain only latin letters, digits, '_' and '-'.
+	Username string `json:"username"`
+}
 
 // User Examples: {"createdAt":"2019-08-24","icon_url":"https://finy.by/icons/default.png","id":142,"username":"johndoe"}
 type User struct {
@@ -104,23 +140,38 @@ type User struct {
 	Username string `json:"username"`
 }
 
+// ValidationError defines model for ValidationError.
+type ValidationError struct {
+	// Errors List of parameters that failed validation.
+	Errors []ValidationErrorField `json:"errors"`
+}
+
+// ValidationErrorCode Specific rule that a field failed.
+type ValidationErrorCode string
+
+// ValidationErrorField Examples: {"code":"username_too_short","field":"username","message":"username must be at least 3 characters long"}, {"code":"password_missing_special_symbol","field":"password","message":"password must include at least one special symbol"}
+type ValidationErrorField struct {
+	// Code Specific rule that a field failed.
+	Code ValidationErrorCode `json:"code"`
+
+	// Field Name of the request parameter that failed validation.
+	Field ValidationErrorFieldName `json:"field"`
+
+	// Message Human-readable explanation of why the parameter is invalid.
+	Message string `json:"message"`
+}
+
+// ValidationErrorFieldName Name of the request parameter that failed validation.
+type ValidationErrorFieldName string
+
+// RegisterUserJSONRequestBody defines body for RegisterUser for application/json ContentType.
+type RegisterUserJSONRequestBody = RegisterUserRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// CheckHealthStatus Check Health Status
-	// (GET /api/health)
-	CheckHealthStatus(ctx echo.Context) error
-	// PostApiV1AuthLogin Login to user account
-	// (POST /api/v1/auth/login)
-	PostApiV1AuthLogin(ctx echo.Context) error
-	// PostApiV1AuthRefresh Refresh user login creds
-	// (POST /api/v1/auth/refresh)
-	PostApiV1AuthRefresh(ctx echo.Context) error
-	// PostApiV1AuthRegister Register User
+	// RegisterUser Register User
 	// (POST /api/v1/auth/register)
-	PostApiV1AuthRegister(ctx echo.Context) error
-	// GetCurrentUserInfo Get Current User Info
-	// (GET /api/v1/users/me)
-	GetCurrentUserInfo(ctx echo.Context) error
+	RegisterUser(ctx echo.Context) error
 }
 
 // ServerInterfaceWrapper converts echo contexts to parameters.
@@ -128,48 +179,12 @@ type ServerInterfaceWrapper struct {
 	Handler ServerInterface
 }
 
-// CheckHealthStatus converts echo context to params.
-func (w *ServerInterfaceWrapper) CheckHealthStatus(ctx echo.Context) error {
+// RegisterUser converts echo context to params.
+func (w *ServerInterfaceWrapper) RegisterUser(ctx echo.Context) error {
 	var err error
 
 	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.CheckHealthStatus(ctx)
-	return err
-}
-
-// PostApiV1AuthLogin converts echo context to params.
-func (w *ServerInterfaceWrapper) PostApiV1AuthLogin(ctx echo.Context) error {
-	var err error
-
-	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.PostApiV1AuthLogin(ctx)
-	return err
-}
-
-// PostApiV1AuthRefresh converts echo context to params.
-func (w *ServerInterfaceWrapper) PostApiV1AuthRefresh(ctx echo.Context) error {
-	var err error
-
-	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.PostApiV1AuthRefresh(ctx)
-	return err
-}
-
-// PostApiV1AuthRegister converts echo context to params.
-func (w *ServerInterfaceWrapper) PostApiV1AuthRegister(ctx echo.Context) error {
-	var err error
-
-	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.PostApiV1AuthRegister(ctx)
-	return err
-}
-
-// GetCurrentUserInfo converts echo context to params.
-func (w *ServerInterfaceWrapper) GetCurrentUserInfo(ctx echo.Context) error {
-	var err error
-
-	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.GetCurrentUserInfo(ctx)
+	err = w.Handler.RegisterUser(ctx)
 	return err
 }
 
@@ -220,11 +235,7 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 		Handler: si,
 	}
 
-	router.GET(options.BaseURL+"/api/health", wrapper.CheckHealthStatus, options.OperationMiddlewares["check-health-status"]...)
-	router.POST(options.BaseURL+"/api/v1/auth/register", wrapper.PostApiV1AuthRegister, options.OperationMiddlewares["PostApiV1AuthRegister"]...)
-	router.POST(options.BaseURL+"/api/v1/auth/login", wrapper.PostApiV1AuthLogin, options.OperationMiddlewares["PostApiV1AuthLogin"]...)
-	router.POST(options.BaseURL+"/api/v1/auth/refresh", wrapper.PostApiV1AuthRefresh, options.OperationMiddlewares["PostApiV1AuthRefresh"]...)
-	router.GET(options.BaseURL+"/api/v1/users/me", wrapper.GetCurrentUserInfo, options.OperationMiddlewares["get-current-user-info"]...)
+	router.POST(options.BaseURL+"/api/v1/auth/register", wrapper.RegisterUser, options.OperationMiddlewares["register-user"]...)
 
 }
 
@@ -233,24 +244,30 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

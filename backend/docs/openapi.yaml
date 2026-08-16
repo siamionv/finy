@@ -10,23 +10,6 @@ servers:
   - url: 'http://localhost:8080'
     description: local
 paths:
-  /api/health:
-    get:
-      summary: Check Health Status
-      tags:
-        - General
-      responses:
-        '200':
-          description: Server is healthy
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnvelopedHealthStatus'
-        '500':
-          description: Server is unhealthy
-      operationId: check-health-status
-      description: Check health status of backend API and provide info about degraded endpoints if some.
-    servers: []
   /api/v1/auth/register:
     post:
       summary: Register User
@@ -66,31 +49,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Envelope'
       servers: []
-  /api/v1/auth/login:
-    post:
-      summary: Login to user account
-  /api/v1/auth/refresh:
-    post:
-      summary: Refresh user login creds
-  /api/v1/users/me:
-    get:
-      summary: Get Current User Info
-      tags:
-        - Users
-      responses:
-        '200':
-          description: User Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnvelopedUser'
-        '404':
-          description: User Not Found
-      operationId: get-current-user-info
-      description: Retrieve the information of the user based on authorization.
-      security:
-        - jwt-auth: []
-    servers: []
 components:
   schemas:
     Envelope:

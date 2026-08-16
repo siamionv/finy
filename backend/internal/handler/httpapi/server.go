@@ -1,0 +1,123 @@
+package httpapi
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+
+	"github.com/siamionv/finy/internal/config"
+	"github.com/siamionv/finy/internal/generated/openapi"
+)
+
+// Deps is everything the HTTP layer needs, declared by the HTTP layer itself.
+// Handler groups get their service as a narrow interface, so nothing under
+// this package can reach past a service into the database.
+//
+// It grows by one field per handler group.
+type Deps struct {
+	Config config.HTTP
+	Logger *slog.Logger
+}
+
+// Server owns the echo instance and its lifecycle. Echo does not escape this
+// package: callers get Run and Handler, not a framework object.
+type Server struct {
+	echo          *echo.Echo
+	logger        *slog.Logger
+	config        config.HTTP
+	abortInflight context.CancelFunc
+}
+
+func New(deps Deps) *Server {
+	// Parent of every in-flight request context. Deliberately not derived from
+	// the signal context: cancelling this is the last resort, after the drain
+	// window expires, not the first thing that happens on SIGINT.
+	baseCtx, abortInflight := context.WithCancel(context.Background())
+
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+
+	e.Server.BaseContext = func(net.Listener) context.Context { return baseCtx }
+	e.Server.ReadHeaderTimeout = deps.Config.ReadHeaderTimeout
+	e.Server.ReadTimeout = deps.Config.ReadTimeout
+	e.Server.WriteTimeout = deps.Config.WriteTimeout
+	e.Server.IdleTimeout = deps.Config.IdleTimeout
+
+	e.Use(middleware.Recover())
+	e.Use(middleware.RequestID())
+	e.Use(middleware.BodyLimit(deps.Config.MaxBodySize))
+	e.Use(loggingMiddleware(deps.Logger))
+
+	openapi.RegisterHandlers(e, newHandlers(deps))
+
+	return &Server{
+		echo:          e,
+		logger:        deps.Logger,
+		config:        deps.Config,
+		abortInflight: abortInflight,
+	}
+}
+
+// Run serves until ctx is cancelled, then drains. It blocks.
+func (s *Server) Run(ctx context.Context) error {
+	errCh := make(chan error, 1)
+
+	go func() {
+		err := s.echo.Start(s.config.Addr)
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+
+		errCh <- err
+	}()
+
+	s.logger.Info("api listening", "addr", s.config.Addr)
+
+	select {
+	case err := <-errCh:
+		// Failed to bind, or stopped without anyone asking it to.
+		return err
+	case <-ctx.Done():
+		s.logger.Info("shutdown signal received, draining", "timeout", s.config.DrainTimeout)
+	}
+
+	return s.shutdown()
+}
+
+// Handler exposes the router for httptest-based tests, without leaking echo
+// into production callers.
+func (s *Server) Handler() http.Handler { return s.echo }
+
+// shutdown stops accepting new requests, gives the in-flight ones DrainTimeout
+// to finish, and only then cancels their contexts and force-closes what is
+// left. Shutdown returning on timeout does not stop the handlers — cancelling
+// the base context is what actually unwinds them.
+//
+//nolint:contextcheck // the drain deadline must outlive the cancelled signal context
+func (s *Server) shutdown() error {
+	// Success path: everything finished, release the base context.
+	defer s.abortInflight()
+
+	drainCtx, cancel := context.WithTimeout(context.Background(), s.config.DrainTimeout)
+	defer cancel()
+
+	start := time.Now()
+
+	if err := s.echo.Shutdown(drainCtx); err != nil {
+		s.logger.Warn("drain timed out, aborting in-flight requests", "error", err)
+		s.abortInflight()
+
+		return s.echo.Close()
+	}
+
+	s.logger.Info("drained cleanly", "elapsed", time.Since(start).String())
+
+	return nil
+}

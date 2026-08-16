@@ -17,6 +17,7 @@ import (
 type Config struct {
 	Logger   Logger   `mapstructure:"logger"   validate:"required"`
 	Database Database `mapstructure:"database" validate:"required"`
+	HTTP     HTTP     `mapstructure:"http"     validate:"required"`
 }
 
 // Validate checks if the configuration is valid
@@ -116,6 +117,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("logger.level", "info")
 	v.SetDefault("logger.format", "json")
 	v.SetDefault("logger.add_source", false)
+
+	v.SetDefault("http.addr", ":8080")
+	v.SetDefault("http.max_body_size", "1M")
+	v.SetDefault("http.read_header_timeout", "5s")
+	v.SetDefault("http.read_timeout", "15s")
+	v.SetDefault("http.write_timeout", "15s")
+	v.SetDefault("http.idle_timeout", "60s")
+	v.SetDefault("http.drain_timeout", "15s")
 }
 
 func bindEnvVars(v *viper.Viper) {
