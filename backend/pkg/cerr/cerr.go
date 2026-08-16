@@ -110,6 +110,10 @@ func (e *Error) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
+// Loc stamps e with the file:line of its caller. Like Time, it belongs at the
+// site that mints the error and nowhere else: Fields walks the whole chain, so
+// a second Loc further up emits a second "cerr.location" attribute rather than
+// replacing the first.
 func (e *Error) Loc() *Error {
 	_, file, line, ok := runtime.Caller(1)
 	if !ok {
@@ -131,10 +135,11 @@ func (e *Error) Loc() *Error {
 	return e.With("cerr.location", loc)
 }
 
+// Time stamps e with the moment it was minted. Call it where the error is
+// created, not where it is handled: the value is meant to be the origin time,
+// and re-stamping higher up would only record how long the unwinding took.
 func (e *Error) Time() *Error {
-	timestamp := time.Now
-
-	return e.With("cerr.timestamp", timestamp)
+	return e.With("cerr.timestamp", time.Now())
 }
 
 // Fields collects the key/value pairs attached with With from err and every

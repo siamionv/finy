@@ -9,6 +9,8 @@ import (
 	"log/slog"
 
 	"github.com/siamionv/finy/internal/entity"
+
+	"github.com/labstack/echo/v4"
 )
 
 // Handler serves every Auth operation. One type per tag, one file per
@@ -38,4 +40,22 @@ func New(deps Deps) *Handler {
 // here, so the group depends on a shape it owns rather than on business.
 type UserService interface {
 	CreateUser(ctx context.Context, creds entity.UserCredentials) (*entity.User, error)
+}
+
+// fail renders body to the client and hands err back up the middleware chain,
+// where the single log site lives. The two are separate concerns: body is what
+// the caller is allowed to know, err is what we need to debug it, and only the
+// handler knows both.
+//
+// Returning a non-nil error after writing is safe by design — echo's error
+// handler returns early once the response is committed — so this changes what
+// gets logged, never what gets sent. If the write itself fails, that error wins:
+// nothing reached the client, and the cause of the empty response is the more
+// urgent of the two.
+func fail(c echo.Context, status int, body any, err error) error {
+	if writeErr := c.JSON(status, body); writeErr != nil {
+		return writeErr
+	}
+
+	return err
 }

@@ -6,26 +6,26 @@ import (
 
 	"github.com/siamionv/finy/internal/entity"
 	"github.com/siamionv/finy/internal/generated/openapi"
+	"github.com/siamionv/finy/pkg/cerr"
 
 	"github.com/labstack/echo/v4"
 )
 
-// TODO: add logging
 func (h *Handler) RegisterUser(c echo.Context) error {
 	var request openapi.RegisterUserRequest
 	if err := c.Bind(&request); err != nil {
-		return h.handleRegisterUserInvalidPayload(c)
+		return h.handleRegisterUserInvalidPayload(c, err)
 	}
 
 	var credentials entity.UserCredentials
 	credentials.FromOpenAPI(request)
 
-	publicUser, err := h.userSvc.CreateUser(c.Request().Context(), credentials)
+	user, err := h.userSvc.CreateUser(c.Request().Context(), credentials)
 	if err != nil {
 		return h.handleCreateUserError(c, err)
 	}
 
-	response := publicUser.ToOpenAPI()
+	response := user.ToOpenAPI()
 
 	return c.JSON(http.StatusCreated, response)
 }
@@ -95,16 +95,16 @@ var validationRules = []struct {
 func (h *Handler) handleCreateUserError(c echo.Context, err error) error {
 	// Critical errors are exclusive of validation errors, so they can't collide.
 	if errors.Is(err, entity.ErrUserAlreadyExist) {
-		return c.JSON(http.StatusConflict, openapi.Envelope{
+		return fail(c, http.StatusConflict, openapi.Envelope{
 			Status: openapi.Failure,
 			Error:  new("user already exists"),
-		})
+		}, err)
 	}
 	if errors.Is(err, entity.ErrFailedToCreateUser) {
-		return c.JSON(http.StatusInternalServerError, openapi.Envelope{
+		return fail(c, http.StatusInternalServerError, openapi.Envelope{
 			Status: openapi.Failure,
 			Error:  new("failed to create user"),
-		})
+		}, err)
 	}
 
 	var fields []openapi.ValidationErrorField
@@ -119,23 +119,34 @@ func (h *Handler) handleCreateUserError(c echo.Context, err error) error {
 	}
 
 	if len(fields) == 0 {
-		return c.JSON(http.StatusInternalServerError, openapi.Envelope{
+		// The error matched no sentinel this handler knows, so the client gets
+		// the same opaque 500 as a real failure. Naming that in the chain is
+		// what separates "the database was down" from "a new sentinel reached
+		// the transport and nobody taught it how to answer".
+		return fail(c, http.StatusInternalServerError, openapi.Envelope{
 			Status: openapi.Failure,
 			Error:  new("failed to create user"),
-		})
+		}, cerr.New("unclassified error from CreateUser", err, cerr.Internal))
 	}
 
-	return c.JSON(http.StatusBadRequest, openapi.EnvelopedValidationError{
+	return fail(c, http.StatusBadRequest, openapi.EnvelopedValidationError{
 		Status: openapi.Failure,
 		Error:  "invalid registration input",
 		Data: openapi.ValidationError{
 			Errors: fields,
 		},
-	})
+	}, err)
 }
 
-func (h *Handler) handleRegisterUserInvalidPayload(c echo.Context) error {
-	return c.JSON(http.StatusBadRequest, openapi.EnvelopedValidationError{
+func (h *Handler) handleRegisterUserInvalidPayload(c echo.Context, cause error) error {
+	// Root error: c.Bind failed before any layer of ours ran, so this is the
+	// only place that can say where and on what.
+	err := cerr.New("failed to bind register user request", cause, cerr.Invalid).
+		Loc().
+		Time().
+		With("content_type", c.Request().Header.Get(echo.HeaderContentType))
+
+	return fail(c, http.StatusBadRequest, openapi.EnvelopedValidationError{
 		Status: openapi.Failure,
 		Error:  "failed to deserialize request payload",
 		Data: openapi.ValidationError{
@@ -147,5 +158,5 @@ func (h *Handler) handleRegisterUserInvalidPayload(c echo.Context) error {
 				},
 			},
 		},
-	})
+	}, err)
 }

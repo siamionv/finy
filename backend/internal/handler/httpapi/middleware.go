@@ -24,12 +24,16 @@ func loggingMiddleware(log *slog.Logger) echo.MiddlewareFunc {
 			logger.Debug("request received")
 
 			err := next(c)
-			if err != nil {
+			if err != nil && !c.Response().Committed {
 				// Echo runs HTTPErrorHandler outside the middleware chain, so
-				// the response status is still unset here. Handling the error
-				// now means the status logged below is the real one — and the
-				// error must not be returned again, or it would be handled
-				// twice.
+				// for an unhandled error the response status is still unset
+				// here. Handling it now means the status logged below is the
+				// real one — and the error must not be returned again, or it
+				// would be handled twice.
+				//
+				// A handler that already answered the client still returns its
+				// error, so this log site can see it; that one is committed and
+				// needs no rendering, only recording.
 				c.Error(err)
 			}
 

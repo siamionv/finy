@@ -2,7 +2,9 @@ package cerr_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/siamionv/finy/pkg/cerr"
 )
@@ -176,6 +178,44 @@ func TestLogValue_GroupWithMsgAndFields(t *testing.T) {
 	}
 	if attrs[2].Key != "b" || attrs[2].Value.Any() != int64(2) {
 		t.Errorf("attrs[2] = %v, want b=2", attrs[2])
+	}
+}
+
+func TestTime_StampsAnInstantNotTheClock(t *testing.T) {
+	before := time.Now()
+	err := cerr.New("m").Time()
+	after := time.Now()
+
+	fields := cerr.Fields(err)
+	if len(fields) != 2 || fields[0] != "cerr.timestamp" {
+		t.Fatalf("Fields = %v, want [cerr.timestamp <time>]", fields)
+	}
+
+	// Regression: stamping time.Now instead of time.Now() stored a func value,
+	// which slog cannot marshal — every error log carried a !ERROR field.
+	got, ok := fields[1].(time.Time)
+	if !ok {
+		t.Fatalf("cerr.timestamp is %T, want time.Time", fields[1])
+	}
+	if got.Before(before) || got.After(after) {
+		t.Errorf("cerr.timestamp = %v, want within [%v, %v]", got, before, after)
+	}
+}
+
+func TestLoc_RecordsProjectRelativeCallSite(t *testing.T) {
+	err := cerr.New("m").Loc()
+
+	fields := cerr.Fields(err)
+	if len(fields) != 2 || fields[0] != "cerr.location" {
+		t.Fatalf("Fields = %v, want [cerr.location <file:line>]", fields)
+	}
+
+	loc, ok := fields[1].(string)
+	if !ok {
+		t.Fatalf("cerr.location is %T, want string", fields[1])
+	}
+	if !strings.HasPrefix(loc, "pkg/cerr/cerr_test.go:") {
+		t.Errorf("cerr.location = %q, want a pkg/cerr/cerr_test.go call site", loc)
 	}
 }
 

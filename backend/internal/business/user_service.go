@@ -37,7 +37,11 @@ func (s *UserService) CreateUser(
 	creds entity.UserCredentials,
 ) (*entity.User, error) {
 	if err := s.ValidateCredentials(creds); err != nil {
-		return nil, cerr.New("failed to validate credentials", err)
+		// No Loc/Time here: the rule that failed already stamped both, and this
+		// layer only adds the subject they could not see. Never the password —
+		// the sentinel says which rule broke, which is all a log may know.
+		return nil, cerr.New("failed to validate credentials", err).
+			With("username", creds.Username)
 	}
 
 	createUserDTO := entity.CreateUser{
