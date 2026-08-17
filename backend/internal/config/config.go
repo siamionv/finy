@@ -18,6 +18,7 @@ type Config struct {
 	Logger   Logger   `mapstructure:"logger"   validate:"required"`
 	Database Database `mapstructure:"database" validate:"required"`
 	HTTP     HTTP     `mapstructure:"http"     validate:"required"`
+	JWT      JWT      `mapstructure:"jwt"      validate:"required"`
 }
 
 // Validate checks if the configuration is valid

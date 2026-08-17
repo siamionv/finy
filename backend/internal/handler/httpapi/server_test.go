@@ -19,10 +19,17 @@ import (
 // panic originates inside the real middleware chain rather than beside it.
 type panickingUserService struct{}
 
-func (panickingUserService) CreateUser(
+func (panickingUserService) CreateUserByCreds(
 	_ context.Context,
 	_ entity.UserCredentials,
 ) (*entity.User, error) {
+	panic("boom")
+}
+
+func (panickingUserService) GetUserIDByCreds(
+	_ context.Context,
+	_ entity.UserCredentials,
+) (int, error) {
 	panic("boom")
 }
 
@@ -96,7 +103,7 @@ func TestServer_LogsPanickingRequests(t *testing.T) {
 	if !strings.Contains(logged["msg"].(string), "boom") {
 		t.Errorf("error.msg = %v, want the panic value", logged["msg"])
 	}
-	if stack, _ := logged["stack"].(string); !strings.Contains(stack, "CreateUser") {
+	if stack, _ := logged["stack"].(string); !strings.Contains(stack, "CreateUserByCreds") {
 		t.Error("error.stack does not reach the panicking frame")
 	}
 }

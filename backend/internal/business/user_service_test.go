@@ -2,6 +2,8 @@ package business_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -13,17 +15,33 @@ import (
 )
 
 type fakeUserRepo struct {
-	got entity.CreateUser
-	err error
+	got           entity.CreateUser
+	err           error
+	byUsername    *entity.UserDB
+	byUsernameErr error
 }
 
-func (f *fakeUserRepo) InsertUser(_ context.Context, dto entity.CreateUser) (*entity.User, error) {
+func (f *fakeUserRepo) InsertUser(
+	_ context.Context,
+	dto entity.CreateUser,
+) (*entity.UserDB, error) {
 	f.got = dto
 	if f.err != nil {
 		return nil, f.err
 	}
 
-	return &entity.User{ID: 1, Username: dto.Username}, nil
+	return &entity.UserDB{ID: 1, Username: dto.Username}, nil
+}
+
+func (f *fakeUserRepo) GetUserByUsername(
+	_ context.Context,
+	username string,
+) (*entity.UserDB, error) {
+	if f.byUsernameErr != nil {
+		return nil, f.byUsernameErr
+	}
+
+	return f.byUsername, nil
 }
 
 // The service is the only place that knows the plaintext, and the column it
@@ -35,7 +53,7 @@ func TestCreateUser_StoresADigestNotThePassword(t *testing.T) {
 
 	const password = "Correct9Horse!"
 
-	if _, err := svc.CreateUser(t.Context(), entity.UserCredentials{
+	if _, err := svc.CreateUserByCreds(t.Context(), entity.UserCredentials{
 		Username: "johndoe",
 		Password: password,
 	}); err != nil {
@@ -57,10 +75,11 @@ func TestCreateUser_SaltsEachHash(t *testing.T) {
 		t.Helper()
 
 		repo := &fakeUserRepo{}
-		if _, err := business.NewUserService(repo).CreateUser(t.Context(), entity.UserCredentials{
-			Username: "johndoe",
-			Password: "Correct9Horse!",
-		}); err != nil {
+		if _, err := business.NewUserService(repo).
+			CreateUserByCreds(t.Context(), entity.UserCredentials{
+				Username: "johndoe",
+				Password: "Correct9Horse!",
+			}); err != nil {
 			t.Fatalf("CreateUser: %v", err)
 		}
 
@@ -80,10 +99,11 @@ func TestCreateUser_AcceptsAPasswordLongerThanBcryptsLimit(t *testing.T) {
 
 	for _, password := range []string{prefix + "one", prefix + "two"} {
 		repo := &fakeUserRepo{}
-		if _, err := business.NewUserService(repo).CreateUser(t.Context(), entity.UserCredentials{
-			Username: "johndoe",
-			Password: password,
-		}); err != nil {
+		if _, err := business.NewUserService(repo).
+			CreateUserByCreds(t.Context(), entity.UserCredentials{
+				Username: "johndoe",
+				Password: password,
+			}); err != nil {
 			t.Fatalf("CreateUser(%d-byte password): %v", len(password), err)
 		}
 	}
@@ -92,7 +112,7 @@ func TestCreateUser_AcceptsAPasswordLongerThanBcryptsLimit(t *testing.T) {
 func TestCreateUser_PropagatesAlreadyExists(t *testing.T) {
 	repo := &fakeUserRepo{err: entity.ErrUserAlreadyExist.Loc().Time().With("username", "johndoe")}
 
-	_, err := business.NewUserService(repo).CreateUser(t.Context(), entity.UserCredentials{
+	_, err := business.NewUserService(repo).CreateUserByCreds(t.Context(), entity.UserCredentials{
 		Username: "johndoe",
 		Password: "Correct9Horse!",
 	})
@@ -102,6 +122,108 @@ func TestCreateUser_PropagatesAlreadyExists(t *testing.T) {
 	}
 	if errors.Is(err, entity.ErrFailedToCreateUser) {
 		t.Error("a duplicate username must not be reported as an internal failure")
+	}
+}
+
+// hashForTest reproduces the service's sha256-then-bcrypt scheme so tests can
+// seed a repo with a password hash the service will actually recognize.
+func hashForTest(t *testing.T, password string) string {
+	t.Helper()
+
+	digest := sha256.Sum256([]byte(password))
+	encoded := base64.RawStdEncoding.EncodeToString(digest[:])
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(encoded), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hashForTest: %v", err)
+	}
+
+	return string(hash)
+}
+
+func TestGetUserIDByCreds_ReturnsIDOnMatch(t *testing.T) {
+	const password = "Correct9Horse!"
+
+	repo := &fakeUserRepo{byUsername: &entity.UserDB{
+		ID:           42,
+		Username:     "johndoe",
+		PasswordHash: hashForTest(t, password),
+	}}
+
+	id, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+		Username: "johndoe",
+		Password: password,
+	})
+	if err != nil {
+		t.Fatalf("GetUserIDByCreds: %v", err)
+	}
+	if id != 42 {
+		t.Errorf("got id %d, want 42", id)
+	}
+}
+
+// Two logins with the same password must both succeed even though hashPassword
+// salts each hash differently — this is the case a naive hash-equality check
+// against the stored digest gets wrong.
+func TestGetUserIDByCreds_MatchesDespiteDifferentSaltPerHash(t *testing.T) {
+	const password = "Correct9Horse!"
+
+	repo := &fakeUserRepo{byUsername: &entity.UserDB{
+		ID:           1,
+		Username:     "johndoe",
+		PasswordHash: hashForTest(t, password),
+	}}
+	svc := business.NewUserService(repo)
+
+	for i := 0; i < 2; i++ {
+		if _, err := svc.GetUserIDByCreds(t.Context(), entity.UserCredentials{
+			Username: "johndoe",
+			Password: password,
+		}); err != nil {
+			t.Fatalf("attempt %d: GetUserIDByCreds: %v", i, err)
+		}
+	}
+}
+
+func TestGetUserIDByCreds_WrongPassword(t *testing.T) {
+	repo := &fakeUserRepo{byUsername: &entity.UserDB{
+		ID:           1,
+		Username:     "johndoe",
+		PasswordHash: hashForTest(t, "Correct9Horse!"),
+	}}
+
+	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+		Username: "johndoe",
+		Password: "WrongPassword9!",
+	})
+	if !errors.Is(err, entity.ErrIncorrectPassword) {
+		t.Errorf("got %v, want ErrIncorrectPassword", err)
+	}
+}
+
+func TestGetUserIDByCreds_UserNotFound(t *testing.T) {
+	repo := &fakeUserRepo{
+		byUsernameErr: entity.ErrUserAlreadyExist,
+	} // any repo error stands in for not-found
+
+	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+		Username: "johndoe",
+		Password: "Correct9Horse!",
+	})
+	if !errors.Is(err, entity.ErrUserAlreadyExist) {
+		t.Errorf("got %v, want it to wrap the repository's error", err)
+	}
+}
+
+func TestGetUserIDByCreds_ValidatesCredentialsFirst(t *testing.T) {
+	repo := &fakeUserRepo{}
+
+	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+		Username: "jo",
+		Password: "Correct9Horse!",
+	})
+	if !errors.Is(err, entity.ErrUsernameTooShort) {
+		t.Errorf("got %v, want ErrUsernameTooShort", err)
 	}
 }
 

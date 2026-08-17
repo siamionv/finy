@@ -29,7 +29,8 @@ type Deps struct {
 	Config config.HTTP
 	Logger *slog.Logger
 
-	UserService auth.UserService
+	UserService  auth.UserService
+	TokenService auth.TokenService
 }
 
 // Server owns the echo instance and its lifecycle. Echo does not escape this

@@ -26,11 +26,23 @@ type fakeUserService struct {
 	err  error
 }
 
-func (f *fakeUserService) CreateUser(
+func (f *fakeUserService) CreateUserByCreds(
 	_ context.Context,
 	_ entity.UserCredentials,
 ) (*entity.User, error) {
 	return f.user, f.err
+}
+
+func (f *fakeUserService) GetUserIDByCreds(
+	_ context.Context,
+	_ entity.UserCredentials,
+) (int, error) {
+	// err first: a case that only sets err has no user to read an id from.
+	if f.err != nil {
+		return 0, f.err
+	}
+
+	return f.user.ID, nil
 }
 
 func post(t *testing.T, svc auth.UserService, body string) *httptest.ResponseRecorder {

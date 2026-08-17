@@ -22,12 +22,13 @@ var _ openapi.ServerInterface = (*handlers)(nil)
 func newHandlers(deps Deps) *handlers {
 	return &handlers{
 		auth: auth.New(auth.Deps{
-			Logger:      deps.Logger,
-			UserService: deps.UserService,
+			Logger:       deps.Logger,
+			UserService:  deps.UserService,
+			TokenService: deps.TokenService,
 		}),
 	}
 }
 
 // --- Auth ---
-
 func (h *handlers) RegisterUser(c echo.Context) error { return h.auth.RegisterUser(c) }
+func (h *handlers) LoginUser(c echo.Context) error    { return h.auth.LoginUser(c) }

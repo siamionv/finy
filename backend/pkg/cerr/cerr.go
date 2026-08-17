@@ -71,6 +71,18 @@ func (e *Error) Wrap(cause error) *Error {
 	return New("", cause, e)
 }
 
+func (e *Error) Join(errs ...error) *Error {
+	newErrs := make([]error, 0, len(errs)+1)
+	newErrs = append(newErrs, e)
+	newErrs = append(newErrs, errs...)
+	c := &Error{errs: newErrs}
+	if len(e.fields) > 0 {
+		c.fields = make([]any, len(e.fields))
+		copy(c.fields, e.fields)
+	}
+	return c
+}
+
 // Error renders msg followed by the message of each wrapped error, in the order
 // given, joined with ": ". kind values are skipped — they classify, they are
 // not prose. Fields are deliberately absent: they belong to LogValue/Fields.

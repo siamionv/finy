@@ -16,8 +16,9 @@ import (
 // Handler serves every Auth operation. One type per tag, one file per
 // operation — the type is the unit of wiring, the file is the unit of reading.
 type Handler struct {
-	logger  *slog.Logger
-	userSvc UserService
+	logger   *slog.Logger
+	userSvc  UserService
+	tokenSvc TokenService
 }
 
 // Deps is what this group needs to serve its operations. A struct rather than
@@ -25,21 +26,28 @@ type Handler struct {
 // keep the wiring site readable — and a forgotten field a nil panic on the
 // first request rather than a silently misordered argument.
 type Deps struct {
-	Logger      *slog.Logger
-	UserService UserService
+	Logger       *slog.Logger
+	UserService  UserService
+	TokenService TokenService
 }
 
 func New(deps Deps) *Handler {
 	return &Handler{
-		logger:  deps.Logger,
-		userSvc: deps.UserService,
+		logger:   deps.Logger,
+		userSvc:  deps.UserService,
+		tokenSvc: deps.TokenService,
 	}
 }
 
 // UserService is the slice of the service layer this group uses — declared
 // here, so the group depends on a shape it owns rather than on business.
 type UserService interface {
-	CreateUser(ctx context.Context, creds entity.UserCredentials) (*entity.User, error)
+	CreateUserByCreds(ctx context.Context, creds entity.UserCredentials) (*entity.User, error)
+	GetUserIDByCreds(ctx context.Context, creds entity.UserCredentials) (int, error)
+}
+
+type TokenService interface {
+	Mint(sub int) (entity.TokenPair, error)
 }
 
 // fail renders body to the client and hands err back up the middleware chain,

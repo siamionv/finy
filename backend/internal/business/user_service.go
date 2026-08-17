@@ -36,10 +36,11 @@ func NewUserService(userRepo UserRepository) *UserService {
 // this service actually calls. The adapter satisfies it implicitly, so the
 // dependency arrow points inwards and tests can substitute a fake.
 type UserRepository interface {
-	InsertUser(ctx context.Context, dto entity.CreateUser) (*entity.User, error)
+	InsertUser(ctx context.Context, dto entity.CreateUser) (*entity.UserDB, error)
+	GetUserByUsername(ctx context.Context, username string) (*entity.UserDB, error)
 }
 
-func (s *UserService) CreateUser(
+func (s *UserService) CreateUserByCreds(
 	ctx context.Context,
 	creds entity.UserCredentials,
 ) (*entity.User, error) {
@@ -53,7 +54,7 @@ func (s *UserService) CreateUser(
 
 	passwordHash, err := hashPassword(creds.Password)
 	if err != nil {
-		return nil, entity.ErrFailedToCreateUser.Wrap(err)
+		return nil, entity.ErrFailedToCreateUser.Wrap(err).Join(cerr.Internal)
 	}
 
 	createUserDTO := entity.CreateUser{
@@ -70,7 +71,30 @@ func (s *UserService) CreateUser(
 		return nil, entity.ErrFailedToCreateUser.Wrap(err)
 	}
 
-	return user, nil
+	userDTO := user.IntoUser()
+
+	return &userDTO, nil
+}
+
+func (s *UserService) GetUserIDByCreds(
+	ctx context.Context,
+	creds entity.UserCredentials,
+) (int, error) {
+	if err := s.ValidateCredentials(creds); err != nil {
+		return 0, cerr.New("failed to validate credentials", err).
+			With("username", creds.Username)
+	}
+
+	user, err := s.userRepo.GetUserByUsername(ctx, creds.Username)
+	if err != nil {
+		return 0, cerr.New("failed to get user by username", err)
+	}
+
+	if err := comparePassword(user.PasswordHash, creds.Password); err != nil {
+		return 0, entity.ErrIncorrectPassword
+	}
+
+	return user.ID, nil
 }
 
 func (s *UserService) ValidateCredentials(creds entity.UserCredentials) error {
@@ -179,4 +203,14 @@ func hashPassword(password string) (string, error) {
 	}
 
 	return string(hash), nil
+}
+
+// comparePassword mirrors hashPassword's sha256 pre-pass so bcrypt sees the
+// same fixed-width input it was given at hash time, then delegates to bcrypt
+// for the actual (salt-aware) comparison.
+func comparePassword(hash, password string) error {
+	digest := sha256.Sum256([]byte(password))
+	encoded := base64.RawStdEncoding.EncodeToString(digest[:])
+
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(encoded))
 }
