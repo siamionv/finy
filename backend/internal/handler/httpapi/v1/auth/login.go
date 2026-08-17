@@ -14,14 +14,14 @@ import (
 func (h *Handler) LoginUser(c echo.Context) error {
 	var request openapi.UserCredentialsRequest
 	if err := c.Bind(&request); err != nil {
-		err := cerr.New("failed to bind register user request", err, cerr.Invalid).
+		err := cerr.New("failed to bind login user request", err, cerr.Invalid).
 			Loc().
 			Time().
 			With("content_type", c.Request().Header.Get(echo.HeaderContentType))
 
-		return fail(c, http.StatusBadRequest, openapi.EnvelopedValidationError{
+		return fail(c, http.StatusBadRequest, openapi.Envelope{
 			Status: openapi.Failure,
-			Error:  "failed to deserialize request payload",
+			Error:  new("failed to deserialize request payload"),
 		}, err)
 	}
 
@@ -52,28 +52,18 @@ func (h *Handler) LoginUser(c echo.Context) error {
 }
 
 // handleLoginUserError renders what a failed login is allowed to say. Unlike
-// registration, which tells the client exactly which rule its input broke, this
-// endpoint answers every bad credential the same way: the caller already knows
-// what it sent, and the difference between "no such password" and "that rule
-// again" is only useful to someone guessing.
+// registration, which tells the client exactly which rule its input broke,
+// this endpoint answers every bad credential the same way: an unknown
+// username, a wrong password, and a malformed credential are indistinguishable
+// to the caller, so this is not a username-enumeration oracle.
 func (h *Handler) handleLoginUserError(c echo.Context, err error) error {
-	if errors.Is(err, entity.ErrUserNotFound) {
-		// The spec documents a 404 here, so an unknown username is
-		// distinguishable from a wrong password and the endpoint will confirm
-		// whether a name is registered. That is the contract's call to make;
-		// collapsing both into the 400 below is the change if it is ever
-		// revisited, and the only change needed.
-		return fail(c, http.StatusNotFound, openapi.Envelope{
-			Status: openapi.Failure,
-			Error:  new("user not found"),
-		}, err)
-	}
-
-	// A wrong password and credentials that never satisfied the rules are one
-	// answer: both mean the pair does not authenticate anyone. Rejecting
-	// malformed input at the same 400 also keeps the rules from being probed
-	// through this endpoint rather than the documented one.
-	if errors.Is(err, entity.ErrIncorrectPassword) || isCredentialsRuleError(err) {
+	// An unknown username, a wrong password, and credentials that never
+	// satisfied the rules are one answer: none of them authenticate anyone,
+	// and none may be more informative than another.
+	if errors.Is(err, entity.ErrUserNotFound) ||
+		errors.Is(err, entity.ErrIncorrectPassword) ||
+		errors.Is(err, entity.ErrCredentialsRequired) ||
+		isCredentialsRuleError(err) {
 		return fail(c, http.StatusBadRequest, openapi.Envelope{
 			Status: openapi.Failure,
 			Error:  new("invalid credentials"),

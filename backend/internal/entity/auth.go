@@ -17,9 +17,10 @@ var (
 	ErrPasswordInvalidCharacters    = cerr.New("password has invalid characters", cerr.Invalid)
 	ErrUserAlreadyExist             = cerr.New("user already exists", cerr.Conflict)
 
-	ErrIncorrectPassword = cerr.New("password is incorrect", cerr.Invalid)
+	ErrIncorrectPassword   = cerr.New("password is incorrect", cerr.Invalid)
+	ErrCredentialsRequired = cerr.New("credentials are required", cerr.Invalid)
 
-	ErrFailedToCreateUser = cerr.New("failed to create user")
+	ErrFailedToCreateUser = cerr.New("failed to create user", cerr.Internal)
 	ErrUserNotFound       = cerr.New("user not found", cerr.NotFound)
 
 	ErrMissingSigningKey = cerr.New("token signing key is not configured", cerr.Internal)

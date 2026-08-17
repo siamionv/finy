@@ -54,7 +54,7 @@ func (s *UserService) CreateUserByCreds(
 
 	passwordHash, err := hashPassword(creds.Password)
 	if err != nil {
-		return nil, entity.ErrFailedToCreateUser.Wrap(err).Join(cerr.Internal)
+		return nil, entity.ErrFailedToCreateUser.Wrap(err)
 	}
 
 	createUserDTO := entity.CreateUser{
@@ -76,13 +76,15 @@ func (s *UserService) CreateUserByCreds(
 	return &userDTO, nil
 }
 
+// GetUserIDByCreds only checks that both fields are present: gating login on
+// the registration ruleset would lock out existing users the day that ruleset
+// tightens.
 func (s *UserService) GetUserIDByCreds(
 	ctx context.Context,
 	creds entity.UserCredentials,
 ) (int, error) {
-	if err := s.ValidateCredentials(creds); err != nil {
-		return 0, cerr.New("failed to validate credentials", err).
-			With("username", creds.Username)
+	if creds.Username == "" || creds.Password == "" {
+		return 0, entity.ErrCredentialsRequired.Loc().Time()
 	}
 
 	user, err := s.userRepo.GetUserByUsername(ctx, creds.Username)
@@ -91,7 +93,7 @@ func (s *UserService) GetUserIDByCreds(
 	}
 
 	if err := comparePassword(user.PasswordHash, creds.Password); err != nil {
-		return 0, entity.ErrIncorrectPassword
+		return 0, entity.ErrIncorrectPassword.Loc().Time().With("username", creds.Username)
 	}
 
 	return user.ID, nil

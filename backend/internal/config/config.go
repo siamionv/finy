@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/siamionv/finy/pkg/cerr"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -42,12 +44,24 @@ func MustConfig() *Config {
 		panic("fail to start without config path")
 	}
 
+	cfg, err := load(*configPath)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	return cfg
+}
+
+// load reads config from configPath and env vars, merging them into a validated Config.
+func load(configPath string) (*Config, error) {
 	// Try loading .env file from multiple locations
 	envPaths := []string{
 		".env",              // Current directory
+		".env.local",        // Current directory
 		"/srv/.env",         // Docker container root
 		"/srv/configs/.env", // Config directory in Docker
-		filepath.Join(filepath.Dir(*configPath), ".env"), // Near config file
+		filepath.Join(filepath.Dir(configPath), ".env"),       // Near config file
+		filepath.Join(filepath.Dir(configPath), ".env.local"), // Near config file
 	}
 
 	envLoaded := false
@@ -65,7 +79,7 @@ func MustConfig() *Config {
 
 	v := viper.New()
 
-	configDir := setConfigName(v, *configPath)
+	configDir := setConfigName(v, configPath)
 
 	v.SetConfigType("yaml")
 	v.AddConfigPath(configDir)
@@ -87,14 +101,14 @@ func MustConfig() *Config {
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
-		log.Fatalf("Unable to decode config into struct: %v", err)
+		return nil, cerr.New("unable to decode config into struct", err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		log.Fatalf("Invalid configuration: %v", err)
+		return nil, cerr.New("invalid configuration", err)
 	}
 
-	return &cfg
+	return &cfg, nil
 }
 
 func setConfigName(v *viper.Viper, configPath string) string {

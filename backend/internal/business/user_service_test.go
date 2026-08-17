@@ -10,6 +10,7 @@ import (
 
 	"github.com/siamionv/finy/internal/business"
 	"github.com/siamionv/finy/internal/entity"
+	"github.com/siamionv/finy/pkg/cerr"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -141,6 +142,17 @@ func hashForTest(t *testing.T, password string) string {
 	return string(hash)
 }
 
+// fieldValue looks up key in a cerr.Fields key/value slice.
+func fieldValue(fields []any, key string) (any, bool) {
+	for i := 0; i+1 < len(fields); i += 2 {
+		if k, ok := fields[i].(string); ok && k == key {
+			return fields[i+1], true
+		}
+	}
+
+	return nil, false
+}
+
 func TestGetUserIDByCreds_ReturnsIDOnMatch(t *testing.T) {
 	const password = "Correct9Horse!"
 
@@ -199,6 +211,12 @@ func TestGetUserIDByCreds_WrongPassword(t *testing.T) {
 	if !errors.Is(err, entity.ErrIncorrectPassword) {
 		t.Errorf("got %v, want ErrIncorrectPassword", err)
 	}
+
+	fields := cerr.Fields(err)
+	username, ok := fieldValue(fields, "username")
+	if !ok || username != "johndoe" {
+		t.Errorf("got username field %v (ok=%v), want %q", username, ok, "johndoe")
+	}
 }
 
 func TestGetUserIDByCreds_UserNotFound(t *testing.T) {
@@ -215,15 +233,51 @@ func TestGetUserIDByCreds_UserNotFound(t *testing.T) {
 	}
 }
 
-func TestGetUserIDByCreds_ValidatesCredentialsFirst(t *testing.T) {
+// Login must not enforce the registration ruleset: a user whose stored
+// password predates a since-tightened policy still has to reach the
+// repository and be allowed to sign in.
+func TestGetUserIDByCreds_ReachesRepoForAWeakButPresentPassword(t *testing.T) {
+	const weakPassword = "weak"
+
+	repo := &fakeUserRepo{byUsername: &entity.UserDB{
+		ID:           7,
+		Username:     "jo",
+		PasswordHash: hashForTest(t, weakPassword),
+	}}
+
+	id, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+		Username: "jo",
+		Password: weakPassword,
+	})
+	if err != nil {
+		t.Fatalf("GetUserIDByCreds: %v", err)
+	}
+	if id != 7 {
+		t.Errorf("got id %d, want 7", id)
+	}
+}
+
+func TestGetUserIDByCreds_EmptyUsername(t *testing.T) {
 	repo := &fakeUserRepo{}
 
 	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
-		Username: "jo",
+		Username: "",
 		Password: "Correct9Horse!",
 	})
-	if !errors.Is(err, entity.ErrUsernameTooShort) {
-		t.Errorf("got %v, want ErrUsernameTooShort", err)
+	if !errors.Is(err, entity.ErrCredentialsRequired) {
+		t.Errorf("got %v, want ErrCredentialsRequired", err)
+	}
+}
+
+func TestGetUserIDByCreds_EmptyPassword(t *testing.T) {
+	repo := &fakeUserRepo{}
+
+	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+		Username: "johndoe",
+		Password: "",
+	})
+	if !errors.Is(err, entity.ErrCredentialsRequired) {
+		t.Errorf("got %v, want ErrCredentialsRequired", err)
 	}
 }
 

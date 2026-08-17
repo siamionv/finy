@@ -3,6 +3,7 @@ package auth_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -40,6 +41,9 @@ func (f *fakeUserService) GetUserIDByCreds(
 	// err first: a case that only sets err has no user to read an id from.
 	if f.err != nil {
 		return 0, f.err
+	}
+	if f.user == nil {
+		return 0, errors.New("fakeUserService: no user configured")
 	}
 
 	return f.user.ID, nil

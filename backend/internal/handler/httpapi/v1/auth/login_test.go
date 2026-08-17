@@ -78,7 +78,8 @@ func TestLoginUser_OK(t *testing.T) {
 	}
 }
 
-// The spec documents 404 for an unknown username.
+// An unknown username must answer exactly like a wrong password: anything
+// else turns this endpoint into a username-enumeration oracle.
 func TestLoginUser_UserNotFound(t *testing.T) {
 	rec := login(t,
 		// Stamped the way the repository stamps it, wrapped the way the service
@@ -89,11 +90,16 @@ func TestLoginUser_UserNotFound(t *testing.T) {
 		validBody,
 	)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("got %d, want 404 (%s)", rec.Code, rec.Body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)
 	}
-	if got := decode[openapi.Envelope](t, rec.Body); got.Status != openapi.Failure {
+
+	got := decode[openapi.Envelope](t, rec.Body)
+	if got.Status != openapi.Failure {
 		t.Errorf("status = %q, want %q", got.Status, openapi.Failure)
+	}
+	if got.Error == nil || *got.Error != "invalid credentials" {
+		t.Errorf("error = %v, want the same opaque message as a wrong password", got.Error)
 	}
 }
 
@@ -220,5 +226,16 @@ func TestLoginUser_MalformedPayload(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)
+	}
+
+	got := decode[openapi.Envelope](t, rec.Body)
+	if got.Status != openapi.Failure {
+		t.Errorf("status = %q, want %q", got.Status, openapi.Failure)
+	}
+	if got.Error == nil || *got.Error == "" {
+		t.Fatal("no error message")
+	}
+	if got.Data != nil {
+		t.Errorf("data = %+v, want nothing: this is a plain Envelope", *got.Data)
 	}
 }

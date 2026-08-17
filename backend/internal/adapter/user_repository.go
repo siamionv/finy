@@ -35,10 +35,8 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	}
 }
 
-func (r *UserRepository) InsertUser(
-	ctx context.Context,
-	dto entity.CreateUser,
-) (*entity.UserDB, error) {
+// buildInsertUserQuery builds the SQL and args to insert a user row.
+func buildInsertUserQuery(dto entity.CreateUser) (string, []any, error) {
 	sql, args, err := sq.Insert(usersTable).
 		PlaceholderFormat(sq.Dollar).
 		Columns(usersColUsername, usersColPasswordHash).
@@ -55,11 +53,43 @@ func (r *UserRepository) InsertUser(
 	if err != nil {
 		// Internal, not Invalid: the query is built from constants and a struct
 		// we control, so a failure here is our bug, never the caller's input.
-		return nil, entity.ErrFailedToBuildQuery.
+		return "", nil, entity.ErrFailedToBuildQuery.
 			Join(err).
 			Loc().
 			Time().
 			With("table", usersTable)
+	}
+
+	return sql, args, nil
+}
+
+// buildGetUserByUsernameQuery builds the SQL and args to select a user by username.
+func buildGetUserByUsernameQuery(username string) (string, []any, error) {
+	sql, args, err := sq.Select(usersColID, usersColUsername, usersColPasswordHash, usersColIconURL, usersColCreatedAt).
+		PlaceholderFormat(sq.Dollar).
+		From(usersTable).
+		Where(sq.Eq{usersColUsername: username}).
+		ToSql()
+	if err != nil {
+		// Internal, not Invalid: the query is built from constants and a struct
+		// we control, so a failure here is our bug, never the caller's input.
+		return "", nil, entity.ErrFailedToBuildQuery.
+			Join(err).
+			Loc().
+			Time().
+			With("table", usersTable)
+	}
+
+	return sql, args, nil
+}
+
+func (r *UserRepository) InsertUser(
+	ctx context.Context,
+	dto entity.CreateUser,
+) (*entity.UserDB, error) {
+	sql, args, err := buildInsertUserQuery(dto)
+	if err != nil {
+		return nil, err
 	}
 
 	var user entity.UserDB
@@ -83,16 +113,9 @@ func (r *UserRepository) GetUserByUsername(
 	ctx context.Context,
 	username string,
 ) (*entity.UserDB, error) {
-	sql, args, err := sq.Select(usersColID, usersColUsername, usersColPasswordHash, usersColIconURL, usersColCreatedAt).
-		From(usersTable).
-		Where(sq.Eq{usersColUsername: username}).
-		ToSql()
+	sql, args, err := buildGetUserByUsernameQuery(username)
 	if err != nil {
-		return nil, entity.ErrFailedToBuildQuery.
-			Join(err).
-			Loc().
-			Time().
-			With("table", usersTable)
+		return nil, err
 	}
 
 	var user entity.UserDB

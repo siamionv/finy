@@ -23,4 +23,4 @@ database:
 jwt:
   # secret comes from JWT_SECRET (.env.local) — never from a tracked file.
   access_token_timeout: 15m
-  refresh_token_timeout: 30d
+  refresh_token_timeout: 720h # 30 days
