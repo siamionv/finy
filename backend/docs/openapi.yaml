@@ -10,51 +10,45 @@ servers:
   - url: 'http://localhost:8080'
     description: local
 paths:
-  /api/health:
-    get:
-      summary: Check Health Status
-      tags:
-        - General
-      responses:
-        '200':
-          description: Server is healthy
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnvelopedHealthStatus'
-        '500':
-          description: Server is unhealthy
-      operationId: check-health-status
-      description: Check health status of backend API and provide info about degraded endpoints if some.
-    servers: []
   /api/v1/auth/register:
     post:
       summary: Register User
-  /api/v1/auth/login:
-    post:
-      summary: Login to user account
-  /api/v1/auth/refresh:
-    post:
-      summary: Refresh user login creds
-  /api/v1/users/me:
-    get:
-      summary: Get Current User Info
       tags:
-        - Users
+        - Auth
+      operationId: register-user
+      description: Create a new user account with a chosen username and password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterUserRequest'
       responses:
-        '200':
-          description: User Found
+        '201':
+          description: New User Created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnvelopedUser'
-        '404':
-          description: User Not Found
-      operationId: get-current-user-info
-      description: Retrieve the information of the user based on authorization.
-      security:
-        - jwt-auth: []
-    servers: []
+        '400':
+          description: Invalid Input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopedValidationError'
+        '409':
+          description: User Already Exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '500':
+          description: Failed to Create User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+      servers: []
 components:
   schemas:
     Envelope:
@@ -108,6 +102,100 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/User'
+    RegisterUserRequest:
+      title: RegisterUserRequest
+      type: object
+      properties:
+        username:
+          type: string
+          description: >-
+            Desired username. Must be at least 3 characters long, start with
+            a latin letter, and contain only latin letters, digits, '_' and '-'.
+          minLength: 3
+          pattern: '^[a-zA-Z][a-zA-Z0-9_-]*$'
+        password:
+          type: string
+          description: >-
+            Desired password. Must be at least 8 characters long and contain
+            only latin letters, digits and special symbols, with at least one
+            uppercase letter, one lowercase letter, one digit and one special
+            symbol.
+          minLength: 8
+          format: password
+          pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9])[a-zA-Z0-9^$*.\[\]{}()?"!@#%&/\\,><'':;|_~`+=-]+$'
+      required:
+        - username
+        - password
+      examples:
+        - username: johndoe
+          password: Correct9Horse!
+    ValidationErrorField:
+      title: ValidationErrorField
+      type: object
+      properties:
+        field:
+          $ref: '#/components/schemas/ValidationErrorFieldName'
+        code:
+          $ref: '#/components/schemas/ValidationErrorCode'
+        message:
+          type: string
+          description: Human-readable explanation of why the parameter is invalid.
+      required:
+        - field
+        - code
+        - message
+      examples:
+        - field: username
+          code: username_too_short
+          message: username must be at least 3 characters long
+        - field: password
+          code: password_missing_special_symbol
+          message: password must include at least one special symbol
+    ValidationErrorFieldName:
+      title: ValidationErrorFieldName
+      type: string
+      description: Name of the request parameter that failed validation.
+      enum:
+        - payload
+        - username
+        - password
+    ValidationErrorCode:
+      title: ValidationErrorCode
+      type: string
+      description: Specific rule that a field failed.
+      enum:
+        - payload_invalid_json
+        - username_too_short
+        - username_invalid_start
+        - username_invalid_characters
+        - password_too_short
+        - password_missing_uppercase
+        - password_missing_lowercase
+        - password_missing_digit
+        - password_missing_special_symbol
+        - password_invalid_characters
+    ValidationError:
+      title: ValidationError
+      type: object
+      properties:
+        errors:
+          type: array
+          description: List of parameters that failed validation.
+          items:
+            $ref: '#/components/schemas/ValidationErrorField'
+      required:
+        - errors
+    EnvelopedValidationError:
+      title: EnvelopedValidationError
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ValidationError'
+      required:
+        - error
+        - data
     SystemComponent:
       title: SystemComponent
       type: string

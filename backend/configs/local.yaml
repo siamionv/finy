@@ -3,6 +3,15 @@ logger:
   format: text
   add_source: true
 
+http:
+  addr: ':8080'
+  max_body_size: 1M
+  read_header_timeout: 5s
+  read_timeout: 15s
+  write_timeout: 15s
+  idle_timeout: 60s
+  drain_timeout: 15s
+
 database:
   username: finy_user
   password: 9Q9h7HbMkR3+Fzc1riyGWA==

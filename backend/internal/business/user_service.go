@@ -1,0 +1,182 @@
+package business
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/siamionv/finy/internal/entity"
+	"github.com/siamionv/finy/pkg/cerr"
+
+	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	usernameMinLength = 3
+	passwordMinLength = 8
+)
+
+// passwordSpecialSymbols is everything the OpenAPI password pattern allows
+// beyond latin letters and digits. It is that pattern's character class spelled
+// out, and has to be edited together with it.
+const passwordSpecialSymbols = "^$*.[]{}()?\"!@#%&/\\,><':;|_~`+=-"
+
+type UserService struct {
+	userRepo UserRepository
+}
+
+func NewUserService(userRepo UserRepository) *UserService {
+	return &UserService{userRepo: userRepo}
+}
+
+// UserRepository is declared here, by the consumer, and kept to the methods
+// this service actually calls. The adapter satisfies it implicitly, so the
+// dependency arrow points inwards and tests can substitute a fake.
+type UserRepository interface {
+	InsertUser(ctx context.Context, dto entity.CreateUser) (*entity.User, error)
+}
+
+func (s *UserService) CreateUser(
+	ctx context.Context,
+	creds entity.UserCredentials,
+) (*entity.User, error) {
+	if err := s.ValidateCredentials(creds); err != nil {
+		// No Loc/Time here: the rule that failed already stamped both, and this
+		// layer only adds the subject they could not see. Never the password —
+		// the sentinel says which rule broke, which is all a log may know.
+		return nil, cerr.New("failed to validate credentials", err).
+			With("username", creds.Username)
+	}
+
+	passwordHash, err := hashPassword(creds.Password)
+	if err != nil {
+		return nil, entity.ErrFailedToCreateUser.Wrap(err)
+	}
+
+	createUserDTO := entity.CreateUser{
+		Username:     creds.Username,
+		PasswordHash: passwordHash,
+	}
+
+	user, err := s.userRepo.InsertUser(ctx, createUserDTO)
+	if err != nil {
+		if errors.Is(err, entity.ErrUserAlreadyExist) {
+			return nil, err
+		}
+
+		return nil, entity.ErrFailedToCreateUser.Wrap(err)
+	}
+
+	return user, nil
+}
+
+func (s *UserService) ValidateCredentials(creds entity.UserCredentials) error {
+	if err := validateUsername(creds.Username); err != nil {
+		return err
+	}
+
+	if err := validatePassword(creds.Password); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// The spec's patterns are latin-only, so these are deliberately narrower than
+// unicode.IsLetter/IsDigit: those accept every script, which would let a
+// username the documented pattern rejects through the service.
+func isLatinLetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
+func isDigit(r rune) bool { return r >= '0' && r <= '9' }
+
+func validateUsername(username string) error {
+	// Runes, not bytes: the length the client is told about is the length they
+	// can count, and a rejected multi-byte name must fail on its characters
+	// rather than on a byte count that happens to reach the minimum.
+	if utf8.RuneCountInString(username) < usernameMinLength {
+		return entity.ErrUsernameTooShort.Loc().Time()
+	}
+
+	// i is a byte offset, so i == 0 identifies the first rune whatever its
+	// width — unlike username[0], which is only its first byte.
+	for i, r := range username {
+		if i == 0 && !isLatinLetter(r) {
+			return entity.ErrUsernameInvalidStart.Loc().Time()
+		}
+
+		if !isLatinLetter(r) && !isDigit(r) && r != '_' && r != '-' {
+			return entity.ErrUsernameInvalidCharacters.Loc().Time()
+		}
+	}
+
+	return nil
+}
+
+func validatePassword(password string) error {
+	if utf8.RuneCountInString(password) < passwordMinLength {
+		return entity.ErrPasswordTooShort.Loc().Time()
+	}
+
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+
+	for _, r := range password {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case isDigit(r):
+			hasDigit = true
+		case strings.ContainsRune(passwordSpecialSymbols, r):
+			hasSpecial = true
+		default:
+			return entity.ErrPasswordInvalidCharacters.Loc().Time()
+		}
+	}
+
+	if !hasUpper {
+		return entity.ErrPasswordMissingUppercase.Loc().Time()
+	}
+
+	if !hasLower {
+		return entity.ErrPasswordMissingLowercase.Loc().Time()
+	}
+
+	if !hasDigit {
+		return entity.ErrPasswordMissingDigit.Loc().Time()
+	}
+
+	if !hasSpecial {
+		return entity.ErrPasswordMissingSpecialSymbol.Loc().Time()
+	}
+
+	return nil
+}
+
+// hashPassword derives what actually goes to the database. Only the digest is
+// ever stored: the plaintext must not outlive this call, and nothing that logs
+// or errors below may name it.
+//
+// The SHA-256 pre-pass exists because bcrypt silently truncates its input at 72
+// bytes — a long passphrase would otherwise be protected only by its prefix.
+// Hashing first gives bcrypt a fixed-width input; base64 rather than the raw
+// digest because bcrypt also stops at the first NUL byte.
+func hashPassword(password string) (string, error) {
+	digest := sha256.Sum256([]byte(password))
+	encoded := base64.RawStdEncoding.EncodeToString(digest[:])
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(encoded), bcrypt.DefaultCost)
+	if err != nil {
+		// No fields: everything this call saw is the password itself.
+		return "", cerr.New("failed to hash password", err, cerr.Internal).
+			Loc().
+			Time()
+	}
+
+	return string(hash), nil
+}

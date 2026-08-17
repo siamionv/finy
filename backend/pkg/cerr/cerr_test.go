@@ -2,7 +2,9 @@ package cerr_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/siamionv/finy/pkg/cerr"
 )
@@ -124,6 +126,30 @@ func TestWith_Copies(t *testing.T) {
 	}
 }
 
+// Regression: With used to copy msg and errs into a fresh *Error and leave the
+// receiver out of the chain, so a stamped sentinel lost its identity. Loc and
+// Time are both built on With, and every layer above matches sentinels with
+// errors.Is — the endpoint answered 500 to every request because of it.
+func TestWith_KeepsSentinelIdentity(t *testing.T) {
+	sentinel := cerr.New("username is too short", cerr.Invalid)
+	stamped := sentinel.Loc().Time().With("username", "jo")
+
+	if !errors.Is(stamped, sentinel) {
+		t.Error("errors.Is must find the sentinel a stamped error was minted from")
+	}
+	if !errors.Is(stamped, cerr.Invalid) {
+		t.Error("errors.Is must find the kind through the sentinel")
+	}
+	if got, want := stamped.Error(), sentinel.Error(); got != want {
+		t.Errorf("stamping restated the message: got %q, want %q", got, want)
+	}
+
+	other := cerr.New("password is too short", cerr.Invalid)
+	if errors.Is(stamped, other) {
+		t.Error("errors.Is must not match a different sentinel of the same kind")
+	}
+}
+
 func TestWrap_AttachesCauseWithoutRestatingMessage(t *testing.T) {
 	someErr := cerr.New("some error desc", cerr.NotFound)
 	cause := errors.New("boom")
@@ -176,6 +202,44 @@ func TestLogValue_GroupWithMsgAndFields(t *testing.T) {
 	}
 	if attrs[2].Key != "b" || attrs[2].Value.Any() != int64(2) {
 		t.Errorf("attrs[2] = %v, want b=2", attrs[2])
+	}
+}
+
+func TestTime_StampsAnInstantNotTheClock(t *testing.T) {
+	before := time.Now()
+	err := cerr.New("m").Time()
+	after := time.Now()
+
+	fields := cerr.Fields(err)
+	if len(fields) != 2 || fields[0] != "cerr.timestamp" {
+		t.Fatalf("Fields = %v, want [cerr.timestamp <time>]", fields)
+	}
+
+	// Regression: stamping time.Now instead of time.Now() stored a func value,
+	// which slog cannot marshal — every error log carried a !ERROR field.
+	got, ok := fields[1].(time.Time)
+	if !ok {
+		t.Fatalf("cerr.timestamp is %T, want time.Time", fields[1])
+	}
+	if got.Before(before) || got.After(after) {
+		t.Errorf("cerr.timestamp = %v, want within [%v, %v]", got, before, after)
+	}
+}
+
+func TestLoc_RecordsProjectRelativeCallSite(t *testing.T) {
+	err := cerr.New("m").Loc()
+
+	fields := cerr.Fields(err)
+	if len(fields) != 2 || fields[0] != "cerr.location" {
+		t.Fatalf("Fields = %v, want [cerr.location <file:line>]", fields)
+	}
+
+	loc, ok := fields[1].(string)
+	if !ok {
+		t.Fatalf("cerr.location is %T, want string", fields[1])
+	}
+	if !strings.HasPrefix(loc, "pkg/cerr/cerr_test.go:") {
+		t.Errorf("cerr.location = %q, want a pkg/cerr/cerr_test.go call site", loc)
 	}
 }
 

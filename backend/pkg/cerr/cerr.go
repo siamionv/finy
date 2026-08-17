@@ -44,19 +44,20 @@ func New(msg string, errs ...error) *Error {
 	return e
 }
 
-// With returns a copy of e with kv appended to its fields. It never mutates the
+// With returns a new error carrying kv that wraps e. It never mutates the
 // receiver: predefined errors are shared package-level values, and mutating
 // them would pollute every user of the package.
+//
+// e is wrapped rather than copied field-by-field, so it stays in the chain and
+// errors.Is(Sentinel.With(...), Sentinel) still holds. That identity is the
+// whole point: Loc and Time are both built on With, so a sentinel stamped at
+// its call site must still answer to the sentinel it was minted from. msg is
+// left empty so Error() renders e's message once rather than twice.
 func (e *Error) With(kv ...any) *Error {
-	c := &Error{msg: e.msg}
-	if len(e.errs) > 0 {
-		c.errs = make([]error, len(e.errs))
-		copy(c.errs, e.errs)
-	}
-	if n := len(e.fields) + len(kv); n > 0 {
-		c.fields = make([]any, 0, n)
-		c.fields = append(c.fields, e.fields...)
-		c.fields = append(c.fields, kv...)
+	c := &Error{errs: []error{e}}
+	if len(kv) > 0 {
+		c.fields = make([]any, len(kv))
+		copy(c.fields, kv)
 	}
 	return c
 }
@@ -110,6 +111,10 @@ func (e *Error) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
+// Loc stamps e with the file:line of its caller. Like Time, it belongs at the
+// site that mints the error and nowhere else: Fields walks the whole chain, so
+// a second Loc further up emits a second "cerr.location" attribute rather than
+// replacing the first.
 func (e *Error) Loc() *Error {
 	_, file, line, ok := runtime.Caller(1)
 	if !ok {
@@ -131,10 +136,11 @@ func (e *Error) Loc() *Error {
 	return e.With("cerr.location", loc)
 }
 
+// Time stamps e with the moment it was minted. Call it where the error is
+// created, not where it is handled: the value is meant to be the origin time,
+// and re-stamping higher up would only record how long the unwinding took.
 func (e *Error) Time() *Error {
-	timestamp := time.Now
-
-	return e.With("cerr.timestamp", timestamp)
+	return e.With("cerr.timestamp", time.Now())
 }
 
 // Fields collects the key/value pairs attached with With from err and every
