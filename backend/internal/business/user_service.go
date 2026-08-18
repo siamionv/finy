@@ -36,10 +36,11 @@ func NewUserService(userRepo UserRepository) *UserService {
 // this service actually calls. The adapter satisfies it implicitly, so the
 // dependency arrow points inwards and tests can substitute a fake.
 type UserRepository interface {
-	InsertUser(ctx context.Context, dto entity.CreateUser) (*entity.User, error)
+	InsertUser(ctx context.Context, dto entity.CreateUser) (*entity.UserDB, error)
+	GetUserByUsername(ctx context.Context, username string) (*entity.UserDB, error)
 }
 
-func (s *UserService) CreateUser(
+func (s *UserService) CreateUserByCreds(
 	ctx context.Context,
 	creds entity.UserCredentials,
 ) (*entity.User, error) {
@@ -70,7 +71,32 @@ func (s *UserService) CreateUser(
 		return nil, entity.ErrFailedToCreateUser.Wrap(err)
 	}
 
-	return user, nil
+	userDTO := user.IntoUser()
+
+	return &userDTO, nil
+}
+
+// GetUserIDByCreds only checks that both fields are present: gating login on
+// the registration ruleset would lock out existing users the day that ruleset
+// tightens.
+func (s *UserService) GetUserIDByCreds(
+	ctx context.Context,
+	creds entity.UserCredentials,
+) (int, error) {
+	if creds.Username == "" || creds.Password == "" {
+		return 0, entity.ErrCredentialsRequired.Loc().Time()
+	}
+
+	user, err := s.userRepo.GetUserByUsername(ctx, creds.Username)
+	if err != nil {
+		return 0, cerr.New("failed to get user by username", err)
+	}
+
+	if err := comparePassword(user.PasswordHash, creds.Password); err != nil {
+		return 0, entity.ErrIncorrectPassword.Loc().Time().With("username", creds.Username)
+	}
+
+	return user.ID, nil
 }
 
 func (s *UserService) ValidateCredentials(creds entity.UserCredentials) error {
@@ -179,4 +205,14 @@ func hashPassword(password string) (string, error) {
 	}
 
 	return string(hash), nil
+}
+
+// comparePassword mirrors hashPassword's sha256 pre-pass so bcrypt sees the
+// same fixed-width input it was given at hash time, then delegates to bcrypt
+// for the actual (salt-aware) comparison.
+func comparePassword(hash, password string) error {
+	digest := sha256.Sum256([]byte(password))
+	encoded := base64.RawStdEncoding.EncodeToString(digest[:])
+
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(encoded))
 }

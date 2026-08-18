@@ -107,6 +107,14 @@ type Envelope struct {
 // EnvelopeStatus defines model for EnvelopeStatus.
 type EnvelopeStatus string
 
+// EnvelopedTokenPair defines model for EnvelopedTokenPair.
+type EnvelopedTokenPair struct {
+	// Data Examples: {"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...","refresh_token":"dGhpc19pc19hX3JlZnJlc2hfdG9rZW4..."}
+	Data   *TokenPair     `json:"data,omitempty"`
+	Error  *string        `json:"error,omitempty"`
+	Status EnvelopeStatus `json:"status"`
+}
+
 // EnvelopedUser defines model for EnvelopedUser.
 type EnvelopedUser struct {
 	// Data Examples: {"createdAt":"2019-08-24","icon_url":"https://finy.by/icons/default.png","id":142,"username":"johndoe"}
@@ -122,13 +130,13 @@ type EnvelopedValidationError struct {
 	Status EnvelopeStatus  `json:"status"`
 }
 
-// RegisterUserRequest Examples: {"password":"Correct9Horse!","username":"johndoe"}
-type RegisterUserRequest struct {
-	// Password Desired password. Must be at least 8 characters long and contain only latin letters, digits and special symbols, with at least one uppercase letter, one lowercase letter, one digit and one special symbol.
-	Password string `json:"password"`
+// TokenPair Examples: {"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...","refresh_token":"dGhpc19pc19hX3JlZnJlc2hfdG9rZW4..."}
+type TokenPair struct {
+	// AccessToken Short-lived JWT used to authenticate requests to endpoints that require authentication. Expires after 15 minutes.
+	AccessToken string `json:"access_token"`
 
-	// Username Desired username. Must be at least 3 characters long, start with a latin letter, and contain only latin letters, digits, '_' and '-'.
-	Username string `json:"username"`
+	// RefreshToken Long-lived token used to obtain a new access/refresh token pair without re-entering credentials. Expires after 30 days.
+	RefreshToken string `json:"refresh_token"`
 }
 
 // User Examples: {"createdAt":"2019-08-24","icon_url":"https://finy.by/icons/default.png","id":142,"username":"johndoe"}
@@ -143,6 +151,15 @@ type User struct {
 	Id int `json:"id"`
 
 	// Username User's nickname that identifies them.
+	Username string `json:"username"`
+}
+
+// UserCredentialsRequest Examples: {"password":"Correct9Horse!","username":"johndoe"}
+type UserCredentialsRequest struct {
+	// Password Password for the account. On registration this must be at least 8 characters long and contain only latin letters, digits and special symbols, with at least one uppercase letter, one lowercase letter, one digit and one special symbol.
+	Password string `json:"password"`
+
+	// Username Username of the account. On registration this must be at least 3 characters long, start with a latin letter, and contain only latin letters, digits, '_' and '-'.
 	Username string `json:"username"`
 }
 
@@ -170,11 +187,17 @@ type ValidationErrorField struct {
 // ValidationErrorFieldName Name of the request parameter that failed validation.
 type ValidationErrorFieldName string
 
+// LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
+type LoginUserJSONRequestBody = UserCredentialsRequest
+
 // RegisterUserJSONRequestBody defines body for RegisterUser for application/json ContentType.
-type RegisterUserJSONRequestBody = RegisterUserRequest
+type RegisterUserJSONRequestBody = UserCredentialsRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// LoginUser Login User
+	// (POST /api/v1/auth/login)
+	LoginUser(ctx echo.Context) error
 	// RegisterUser Register User
 	// (POST /api/v1/auth/register)
 	RegisterUser(ctx echo.Context) error
@@ -183,6 +206,15 @@ type ServerInterface interface {
 // ServerInterfaceWrapper converts echo contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler ServerInterface
+}
+
+// LoginUser converts echo context to params.
+func (w *ServerInterfaceWrapper) LoginUser(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.LoginUser(ctx)
+	return err
 }
 
 // RegisterUser converts echo context to params.
@@ -242,6 +274,7 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	}
 
 	router.POST(options.BaseURL+"/api/v1/auth/register", wrapper.RegisterUser, options.OperationMiddlewares["register-user"]...)
+	router.POST(options.BaseURL+"/api/v1/auth/login", wrapper.LoginUser, options.OperationMiddlewares["login-user"]...)
 
 }
 
@@ -250,31 +283,36 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"/w==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

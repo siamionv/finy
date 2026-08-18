@@ -16,7 +16,15 @@ var (
 	ErrPasswordMissingSpecialSymbol = cerr.New("password is missing special digit", cerr.Invalid)
 	ErrPasswordInvalidCharacters    = cerr.New("password has invalid characters", cerr.Invalid)
 	ErrUserAlreadyExist             = cerr.New("user already exists", cerr.Conflict)
-	ErrFailedToCreateUser           = cerr.New("failed to create user", cerr.Internal)
+
+	ErrIncorrectPassword   = cerr.New("password is incorrect", cerr.Invalid)
+	ErrCredentialsRequired = cerr.New("credentials are required", cerr.Invalid)
+
+	ErrFailedToCreateUser = cerr.New("failed to create user", cerr.Internal)
+	ErrUserNotFound       = cerr.New("user not found", cerr.NotFound)
+
+	ErrMissingSigningKey = cerr.New("token signing key is not configured", cerr.Internal)
+	ErrFailedToMintToken = cerr.New("failed to mint token", cerr.Internal)
 )
 
 type UserCredentials struct {
@@ -29,7 +37,19 @@ type CreateUser struct {
 	PasswordHash string
 }
 
-func (c *UserCredentials) FromOpenAPI(req openapi.RegisterUserRequest) {
+func (c *UserCredentials) FromOpenAPI(req openapi.UserCredentialsRequest) {
 	c.Username = req.Username
 	c.Password = req.Password
+}
+
+type TokenPair struct {
+	AccessToken  string
+	RefreshToken string
+}
+
+func (t TokenPair) ToOpenAPI() openapi.TokenPair {
+	return openapi.TokenPair{
+		AccessToken:  t.AccessToken,
+		RefreshToken: t.RefreshToken,
+	}
 }

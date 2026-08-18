@@ -41,7 +41,7 @@ func MustDependencies(ctx context.Context, config *config.Config) Dependencies {
 		Config:   config,
 		Logger:   mustLogger(ctx, config.Logger),
 		DB:       db,
-		Services: newServices(newRepositories(db)),
+		Services: newServices(config, newRepositories(db)),
 	}
 }
 

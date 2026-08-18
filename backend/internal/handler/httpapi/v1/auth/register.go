@@ -12,7 +12,7 @@ import (
 )
 
 func (h *Handler) RegisterUser(c echo.Context) error {
-	var request openapi.RegisterUserRequest
+	var request openapi.UserCredentialsRequest
 	if err := c.Bind(&request); err != nil {
 		return h.handleRegisterUserInvalidPayload(c, err)
 	}
@@ -20,7 +20,7 @@ func (h *Handler) RegisterUser(c echo.Context) error {
 	var credentials entity.UserCredentials
 	credentials.FromOpenAPI(request)
 
-	user, err := h.userSvc.CreateUser(c.Request().Context(), credentials)
+	user, err := h.userSvc.CreateUserByCreds(c.Request().Context(), credentials)
 	if err != nil {
 		return h.handleCreateUserError(c, err)
 	}

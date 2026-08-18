@@ -71,6 +71,20 @@ func (e *Error) Wrap(cause error) *Error {
 	return New("", cause, e)
 }
 
+// Join returns a new error wrapping e plus errs (typically kind values). e
+// stays in the chain rather than being copied, so errors.Is still matches it
+// alongside every joined error. nil entries in errs are dropped.
+func (e *Error) Join(errs ...error) *Error {
+	newErrs := make([]error, 0, len(errs)+1)
+	newErrs = append(newErrs, e)
+	for _, err := range errs {
+		if err != nil {
+			newErrs = append(newErrs, err)
+		}
+	}
+	return &Error{errs: newErrs}
+}
+
 // Error renders msg followed by the message of each wrapped error, in the order
 // given, joined with ": ". kind values are skipped — they classify, they are
 // not prose. Fields are deliberately absent: they belong to LogValue/Fields.

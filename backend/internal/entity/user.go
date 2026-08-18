@@ -21,3 +21,20 @@ func (u User) ToOpenAPI() openapi.User {
 		CreatedAt: u.CreatedAt.Format(time.RFC3339),
 	}
 }
+
+type UserDB struct {
+	ID           int
+	Username     string
+	PasswordHash string
+	IconURL      *string
+	CreatedAt    time.Time
+}
+
+func (u UserDB) IntoUser() User {
+	return User{
+		ID:        u.ID,
+		Username:  u.Username,
+		IconURL:   u.IconURL,
+		CreatedAt: u.CreatedAt,
+	}
+}

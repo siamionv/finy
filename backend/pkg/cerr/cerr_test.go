@@ -243,6 +243,75 @@ func TestLoc_RecordsProjectRelativeCallSite(t *testing.T) {
 	}
 }
 
+// Regression: Join used to copy e.fields into the new error while also
+// keeping e itself in errs, so Fields walked both copies and every field
+// came out twice.
+func TestJoin_FieldsAppearOnce(t *testing.T) {
+	err := cerr.New("boom").Loc().Time().Join(cerr.Internal)
+
+	fields := cerr.Fields(err)
+	var locCount, timeCount int
+	for i := 0; i+1 < len(fields); i += 2 {
+		switch fields[i] {
+		case "cerr.location":
+			locCount++
+		case "cerr.timestamp":
+			timeCount++
+		}
+	}
+	if locCount != 1 {
+		t.Errorf("got %d cerr.location fields, want 1", locCount)
+	}
+	if timeCount != 1 {
+		t.Errorf("got %d cerr.timestamp fields, want 1", timeCount)
+	}
+}
+
+func TestJoin_KeepsIdentityOfReceiverAndJoined(t *testing.T) {
+	sentinel := errors.New("sentinel")
+	base := cerr.New("m", sentinel)
+	joined := base.Join(cerr.NotFound, cerr.Internal)
+
+	if !errors.Is(joined, base) {
+		t.Error("errors.Is must find the receiver")
+	}
+	if !errors.Is(joined, sentinel) {
+		t.Error("errors.Is must find a sentinel wrapped by the receiver")
+	}
+	if !errors.Is(joined, cerr.NotFound) {
+		t.Error("errors.Is must find the first joined kind")
+	}
+	if !errors.Is(joined, cerr.Internal) {
+		t.Error("errors.Is must find the second joined kind")
+	}
+}
+
+func TestJoin_DropsNilEntries(t *testing.T) {
+	err := cerr.New("boom").Join(nil)
+
+	if got, want := err.Error(), "boom"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if fields := cerr.Fields(err); len(fields) != 0 {
+		t.Errorf("Fields = %v, want empty", fields)
+	}
+}
+
+func TestLogValue_JoinHasNoDuplicateKeys(t *testing.T) {
+	err := cerr.New("boom").Loc().Time().Join(cerr.Internal)
+	attrs := err.LogValue().Group()
+
+	seen := make(map[string]int, len(attrs))
+	for _, a := range attrs {
+		seen[a.Key]++
+	}
+	for key, count := range seen {
+		if count > 1 {
+			t.Errorf("attr %q appeared %d times, want 1", key, count)
+		}
+	}
+}
+
 func TestLogValue_IgnoresDanglingKeyAndNonStringKey(t *testing.T) {
 	err := cerr.New("m").With("k")
 	attrs := err.LogValue().Group()
