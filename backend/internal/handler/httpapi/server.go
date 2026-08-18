@@ -16,7 +16,7 @@ import (
 	"github.com/siamionv/finy/internal/handler/httpapi/authn"
 	"github.com/siamionv/finy/internal/handler/httpapi/docs"
 	"github.com/siamionv/finy/internal/handler/httpapi/v1/auth"
-	"github.com/siamionv/finy/internal/handler/httpapi/v1/user"
+	"github.com/siamionv/finy/internal/handler/httpapi/v1/users"
 )
 
 // Deps is everything the HTTP layer needs, declared by the HTTP layer itself.
@@ -27,7 +27,7 @@ type Deps struct {
 	Logger *slog.Logger
 
 	Authenticator auth.Authenticator
-	ProfileReader user.ProfileReader
+	ProfileReader users.ProfileReader
 	TokenVerifier authn.TokenVerifier
 }
 

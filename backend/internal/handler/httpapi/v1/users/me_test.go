@@ -1,4 +1,4 @@
-package user_test
+package users_test
 
 import (
 	"context"
@@ -15,7 +15,8 @@ import (
 	"github.com/siamionv/finy/internal/entity"
 	"github.com/siamionv/finy/internal/generated/openapi"
 	"github.com/siamionv/finy/internal/handler/httpapi/authn"
-	"github.com/siamionv/finy/internal/handler/httpapi/v1/user"
+	"github.com/siamionv/finy/internal/handler/httpapi/v1/users"
+
 	"github.com/siamionv/finy/pkg/cerr"
 )
 
@@ -50,13 +51,13 @@ func decode[T any](t *testing.T, r io.Reader) T {
 
 // me drives one request through the handler. A userID of 0 stands for a route
 // that was never guarded, so nothing stamps an identity onto the request.
-func me(t *testing.T, profiles user.ProfileReader, userID int) *httptest.ResponseRecorder {
+func me(t *testing.T, profiles users.ProfileReader, userID int) *httptest.ResponseRecorder {
 	t.Helper()
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
 
-	handler := user.New(user.Deps{
+	handler := users.New(users.Deps{
 		Logger:        slog.New(slog.DiscardHandler),
 		ProfileReader: profiles,
 	}).GetCurrentUser
@@ -76,7 +77,7 @@ func me(t *testing.T, profiles user.ProfileReader, userID int) *httptest.Respons
 	return rec
 }
 
-// constVerifier accepts any token and always names the same user.
+// constVerifier accepts any token and always names the same users.
 type constVerifier int
 
 func (v constVerifier) Authenticate(string) (int, error) { return int(v), nil }

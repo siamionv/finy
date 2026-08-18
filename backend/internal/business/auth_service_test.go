@@ -451,3 +451,28 @@ func TestValidateCredentials(t *testing.T) {
 		})
 	}
 }
+
+// Regression: validation used to stop at the first broken rule, so a caller
+// fixing one field at a time would get a fresh error on every retry instead
+// of the full list up front.
+func TestValidateCredentials_ReportsEveryViolation(t *testing.T) {
+	svc := mustAuth(&fakeUserRepo{})
+
+	err := svc.ValidateCredentials(entity.UserCredentials{
+		Username: "9j",  // too short AND invalid start
+		Password: "cor", // too short, missing upper/digit/special
+	})
+
+	for _, want := range []error{
+		entity.ErrUsernameTooShort,
+		entity.ErrUsernameInvalidStart,
+		entity.ErrPasswordTooShort,
+		entity.ErrPasswordMissingUppercase,
+		entity.ErrPasswordMissingDigit,
+		entity.ErrPasswordMissingSpecialSymbol,
+	} {
+		if !errors.Is(err, want) {
+			t.Errorf("missing %v in %v", want, err)
+		}
+	}
+}

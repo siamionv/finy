@@ -169,6 +169,38 @@ func TestRegisterUser_ValidationFailureIsRendered(t *testing.T) {
 	}
 }
 
+// Regression: the business layer used to stop at the first broken rule, so
+// the handler's per-rule match loop only ever had one sentinel to find.
+func TestRegisterUser_MultipleValidationFailuresAreAllRendered(t *testing.T) {
+	err := cerr.New("invalid credentials",
+		entity.ErrUsernameTooShort,
+		entity.ErrPasswordTooShort,
+		entity.ErrPasswordMissingSpecialSymbol,
+	).Loc().Time()
+
+	rec := post(t, &fakeAuth{err: err}, validBody)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)
+	}
+
+	got := decode[openapi.EnvelopedValidationError](t, rec.Body)
+	if len(got.Data.Errors) != 3 {
+		t.Fatalf("got %d field errors, want 3: %+v", len(got.Data.Errors), got.Data.Errors)
+	}
+
+	wantCodes := map[openapi.ValidationErrorCode]bool{
+		openapi.UsernameTooShort:             true,
+		openapi.PasswordTooShort:             true,
+		openapi.PasswordMissingSpecialSymbol: true,
+	}
+	for _, f := range got.Data.Errors {
+		if !wantCodes[f.Code] {
+			t.Errorf("unexpected code %q", f.Code)
+		}
+	}
+}
+
 func TestRegisterUser_Conflict(t *testing.T) {
 	rec := post(t, &fakeAuth{
 		err: entity.ErrUserAlreadyExist.Loc().Time().With("username", "johndoe"),
