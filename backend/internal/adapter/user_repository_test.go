@@ -64,3 +64,29 @@ func TestBuildGetUserByUsernameQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildGetUserByIDQuery(t *testing.T) {
+	id := 42
+
+	sql, args, err := buildGetUserByIDQuery(id)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(sql, "$1") {
+		t.Errorf("expected query to contain $1 placeholder, got: %s", sql)
+	}
+	if strings.Contains(sql, "?") {
+		t.Errorf("expected query to contain no ? placeholders, got: %s", sql)
+	}
+
+	wantArgs := []any{id}
+	if len(args) != len(wantArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(wantArgs), len(args), args)
+	}
+	for i, want := range wantArgs {
+		if args[i] != want {
+			t.Errorf("arg[%d] = %v, want %v", i, args[i], want)
+		}
+	}
+}

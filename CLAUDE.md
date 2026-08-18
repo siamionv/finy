@@ -1,9 +1,7 @@
 # Backend repo
 
 ## Important architecture rules
-DRY and KISS are not jokes. Before implementing some new service/adapter/entity
-or any other functionality I strongly suggest to see check if this one already
-exists or at least place/object were this functionality can live exists.
+DRY and KISS are not jokes. Before implementing some new service/adapter/entity or any other functionality I strongly suggest to see check if this one already exists or at least place/object were this functionality can live exists.
 
 ## Project structure
 
@@ -47,74 +45,52 @@ This layer contains only:
 - Adopting results of business layer processing (handling defined-error cases)
 - Writing client response
 
-IMPORTANT: transport layer is not and orchestrator of business logic. It must
-call only one business method at a time. Its business layer responsibility to jungle
-business rules and etc.
+IMPORTANT: transport layer is not and orchestrator of business logic. It must call only one business method at a time. Its business layer responsibility to jungle business rules and etc.
 
-So one endpoint means exactly one business call. If an operation needs two
-business steps, that sequencing belongs in a business method that owns both —
-never in the handler. Login is the example: it verifies credentials and mints
-tokens, and the handler sees one call.
+So one endpoint means exactly one business call. If an operation needs two business steps, that sequencing belongs in a business method that owns both — never in the handler. Login is the example: it verifies credentials and mints tokens, and the handler sees one call.
+
+All endpoints creation must follow spec-first approach where we firstly work with OpenAPI config then generate code from it and only then starting creating new endpoint that follows OpenAPI scec.
+
+Each endpoint should follow same pattern:
+1) Out of handler code you should declare following business usecase in interface this handler depends on.
+2) Unmarshal request and handle errors related to unmarshaling.
+3) Transform request DTO into entity suitable for business logic usecase call.
+4) Call business layer usecase
+5) Process errors related to business layer and map them to suitable HTTP statuses.
+6) In case we got successful result from business usecase we should transform it into response DTO.
+7) Marshal response and send it back to the client.
 
 #### /internal/business
-Business layer. All service implementation goes there. All business rules like
-validation, data transformation, data aggregation, algorithm orchestrastion
-goes here.
+Business layer. All service implementation goes there. All business rules like validation, data transformation, data aggregation, algorithm orchestrastion goes here.
 
-Business layer is detached from outside world it only knows business. It has
-transport layer to provide access for business logic to clients. And what is
-more important in this layer is that it has abstraction called Adapter.
+Business layer is detached from outside world it only knows business. It has transport layer to provide access for business logic to clients. And what is more important in this layer is that it has abstraction called Adapter.
 
 #### /internal/adapter
-Adapter is the tool for business logic to access concrete database or concrete
-cache. Clients for inter-service communication or accessing external 3rd party
-APIs go there. Same with infra related cold storages, message brokers and etc.
+Adapter is the tool for business logic to access concrete database or concrete cache. Clients for inter-service communication or accessing external 3rd party APIs go there. Same with infra related cold storages, message brokers and etc.
 
 #### /internal/entity
-Entity is global data layer shared across all 3 layers. All DTOs, business models,
-domain errors and etc should be declared there. Our goal here is proactive model
-reusage and models strcucturing by file. This is really important because otherwise
-this layer will become a total mess.
+Entity is global data layer shared across all 3 layers. All DTOs, business models, domain errors and etc should be declared there. Our goal here is proactive model reusage and models strcucturing by file. This is really important because otherwise this layer will become a total mess.
 
 ## Dependency defenition
-Each time layer needs something that is not in its domain interface should be
-declared.
+Each time layer needs something that is not in its domain interface should be declared.
 
-Interface is always declared by the consumer, never by the provider, and holds
-only the methods that consumer actually calls. The provider satisfies it
-implicitly. /internal/di is the only place that knows both sides.
+Interface is always declared by the consumer, never by the provider, and holds only the methods that consumer actually calls. The provider satisfies it implicitly. /internal/di is the only place that knows both sides.
 
-Name the interface after the capability the consumer needs, not after the type
-that happens to provide it. `Authenticator`, not `UserService`: the transport
-asks for "something that can register and log in", and stays untouched when the
-business layer reshapes which object provides that.
+Name the interface after the capability the consumer needs, not after the type that happens to provide it. `Authenticator`, not `UserService`: the transport asks for "something that can register and log in", and stays untouched when the business layer reshapes which object provides that.
 
-This rule holds inside a layer too. A business object that needs another
-business object declares its own narrow interface for it — same as it does for
-an adapter. See business.TokenMinter, declared by AuthService for the token
-service it mints through.
+This rule holds inside a layer too. A business object that needs another business object declares its own narrow interface for it — same as it does for an adapter. See business.TokenMinter, declared by AuthService for the token service it mints through.
 
 ## Errors
-Every error declared on our side should be of type *cerr.Error. We must this and
-only this due to its power of exstensibility and scalability.
+Every error declared on our side should be of type *cerr.Error. We must this and only this due to its power of exstensibility and scalability.
 
-Define domain errors in entity layer. Add kinds to it only if error itself sounds
-like a 100% hit into this kind.
+Define domain errors in entity layer. Add kinds to it only if error itself sounds like a 100% hit into this kind.
 
 ## Logging
 
-All loggin should happen at transport layer. This will reduce number of pollution-like
-logs and duplications. To not lose context we have defined in /pkg/cerr domain
-error struct *Error. This is a robust way to define place where error was created,
-its creation time, all needed context can be provided not only on creation time
-but on the full stacktrace until processing. They could be wrapped so they will
-carry all errors stack has.
+All loggin should happen at transport layer. This will reduce number of pollution-like logs and duplications. To not lose context we have defined in /pkg/cerr domain error struct *Error. This is a robust way to define place where error was created, its creation time, all needed context can be provided not only on creation time but on the full stacktrace until processing. They could be wrapped so they will carry all errors stack has.
 
 EXCLUSION: the only log level that can be put everywhere is Debug.
 
 ## Comments
 
-Don't use a lot of comments. Brevity is the soul of wit. Don't comment the code
-because code itself should be really documenting itself. Use comments only at
-components declarations like structs, interfaces, funcs and etc. But don't write
-multi-line poems.
+Don't use a lot of comments. Brevity is the soul of wit. Don't comment the code because code itself should be really documenting itself. Use comments only at components declarations like structs, interfaces, funcs and etc. But don't write multi-line poems.

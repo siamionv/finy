@@ -103,6 +103,21 @@ func TestGuardedOperations_LeavesTheWayInOpen(t *testing.T) {
 	}
 }
 
+// The other half of the stance above: an operation that says `security` in the
+// spec must come back guarded, or it serves unauthenticated with nothing to say so.
+func TestGuardedOperations_GuardsWhatTheSpecMarks(t *testing.T) {
+	noop := func(next echo.HandlerFunc) echo.HandlerFunc { return next }
+
+	guarded, err := guardedOperations(noop)
+	if err != nil {
+		t.Fatalf("guardedOperations: %v", err)
+	}
+
+	if _, found := guarded["get-current-user"]; !found {
+		t.Error("get-current-user is not guarded, but the spec marks it jwt-auth")
+	}
+}
+
 // The bug this guards against is silent and total: codegen normalizes
 // operationIds ("login-user" into "LoginUser") and by default writes that back
 // into the embedded spec, while keying OperationMiddlewares by the raw id. The
