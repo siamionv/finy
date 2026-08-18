@@ -2,6 +2,10 @@
 generate:
 	go generate ./...
 
+.PHONY: swagger
+swagger:
+	go generate ./internal/generated/openapi/...
+
 # tagalign exits 3 when it rewrote a file, so its status is ignored with `-`:
 # -fix already applied the change and a non-zero exit would abort the target.
 #

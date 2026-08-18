@@ -48,7 +48,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Envelope'
-      servers: []
   /api/v1/auth/login:
     post:
       summary: Login User
@@ -81,7 +80,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Envelope'
-      servers: []
   /api/v1/auth/refresh:
     post:
       summary: Refresh Tokens
@@ -114,7 +112,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Envelope'
-      servers: []
   /api/v1/users/me:
     get:
       summary: Get Current User
@@ -145,7 +142,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Envelope'
-      servers: []
 components:
   schemas:
     Envelope:
