@@ -3,24 +3,24 @@ package di
 import (
 	"github.com/siamionv/finy/internal/business"
 	"github.com/siamionv/finy/internal/config"
+	"github.com/siamionv/finy/internal/entity"
 )
 
-// Services is the use-case layer, and the only slice of the graph a transport
-// is handed. Fields are concrete types; each consumer narrows them to its own
-// interface at the wiring site, so adding a method here never widens what a
-// handler group is able to call.
-//
-// It grows by one field per service.
+// Services is the use-case layer, and the only slice of the graph a transport is
+// handed. Each consumer narrows these concrete types to its own interface.
 type Services struct {
-	User  *business.UserService
-	Token *business.TokenService
+	Auth *business.AuthService
 }
 
-// newServices is where the graph is actually assembled. Construction is pure —
-// no I/O, no ordering constraints — so a new service is one field and one line.
+// newServices assembles the graph. Construction is pure: no I/O, no ordering.
 func newServices(config *config.Config, repos repositories) Services {
+	tokens := business.NewTokenService(entity.TokenSettings{
+		Secret:     config.JWT.Secret,
+		AccessTTL:  config.JWT.AccessTokenTimeout,
+		RefreshTTL: config.JWT.RefreshTokenTimeout,
+	})
+
 	return Services{
-		User:  business.NewUserService(repos.user),
-		Token: business.NewTokenService(config.JWT),
+		Auth: business.NewAuthService(repos.user, tokens),
 	}
 }

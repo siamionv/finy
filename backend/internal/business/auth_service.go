@@ -19,36 +19,45 @@ const (
 	passwordMinLength = 8
 )
 
-// passwordSpecialSymbols is everything the OpenAPI password pattern allows
-// beyond latin letters and digits. It is that pattern's character class spelled
-// out, and has to be edited together with it.
+// passwordSpecialSymbols spells out the OpenAPI password pattern's character
+// class; it has to be edited together with that pattern.
 const passwordSpecialSymbols = "^$*.[]{}()?\"!@#%&/\\,><':;|_~`+=-"
 
-type UserService struct {
+// AuthService owns the two account use cases: establishing an identity, and
+// proving one. Both are single calls, so no transport has to sequence them.
+type AuthService struct {
 	userRepo UserRepository
+	tokens   TokenMinter
 }
 
-func NewUserService(userRepo UserRepository) *UserService {
-	return &UserService{userRepo: userRepo}
+func NewAuthService(userRepo UserRepository, tokens TokenMinter) *AuthService {
+	return &AuthService{userRepo: userRepo, tokens: tokens}
 }
 
-// UserRepository is declared here, by the consumer, and kept to the methods
-// this service actually calls. The adapter satisfies it implicitly, so the
-// dependency arrow points inwards and tests can substitute a fake.
+// UserRepository is declared by the consumer and kept to the methods this
+// service calls, so the dependency arrow points inwards.
 type UserRepository interface {
 	InsertUser(ctx context.Context, dto entity.CreateUser) (*entity.UserDB, error)
 	GetUserByUsername(ctx context.Context, username string) (*entity.UserDB, error)
 }
 
-func (s *UserService) CreateUserByCreds(
+// TokenMinter is the slice of the token service Login needs. Declared here for
+// the same reason UserRepository is: the consumer owns the shape it depends on,
+// even when the provider is another business object.
+type TokenMinter interface {
+	Mint(sub int) (entity.TokenPair, error)
+}
+
+// Register validates the credentials and creates the account they describe.
+func (s *AuthService) Register(
 	ctx context.Context,
 	creds entity.UserCredentials,
 ) (*entity.User, error) {
 	if err := s.ValidateCredentials(creds); err != nil {
-		// No Loc/Time here: the rule that failed already stamped both, and this
-		// layer only adds the subject they could not see. Never the password —
-		// the sentinel says which rule broke, which is all a log may know.
+		// Never the password: the sentinel already says which rule broke.
 		return nil, cerr.New("failed to validate credentials", err).
+			Loc().
+			Time().
 			With("username", creds.Username)
 	}
 
@@ -76,10 +85,23 @@ func (s *UserService) CreateUserByCreds(
 	return &userDTO, nil
 }
 
-// GetUserIDByCreds only checks that both fields are present: gating login on
-// the registration ruleset would lock out existing users the day that ruleset
-// tightens.
-func (s *UserService) GetUserIDByCreds(
+// Login verifies the credentials and mints the pair they earn. Sequencing the
+// two steps is this layer's job: a transport gets one call, not two.
+func (s *AuthService) Login(
+	ctx context.Context,
+	creds entity.UserCredentials,
+) (entity.TokenPair, error) {
+	userID, err := s.userIDByCreds(ctx, creds)
+	if err != nil {
+		return entity.TokenPair{}, err
+	}
+
+	return s.tokens.Mint(userID)
+}
+
+// userIDByCreds only checks that both fields are present: gating login on the
+// registration ruleset would lock out existing users the day that ruleset tightens.
+func (s *AuthService) userIDByCreds(
 	ctx context.Context,
 	creds entity.UserCredentials,
 ) (int, error) {
@@ -89,7 +111,7 @@ func (s *UserService) GetUserIDByCreds(
 
 	user, err := s.userRepo.GetUserByUsername(ctx, creds.Username)
 	if err != nil {
-		return 0, cerr.New("failed to get user by username", err)
+		return 0, cerr.New("failed to get user by username", err).Loc().Time()
 	}
 
 	if err := comparePassword(user.PasswordHash, creds.Password); err != nil {
@@ -99,7 +121,7 @@ func (s *UserService) GetUserIDByCreds(
 	return user.ID, nil
 }
 
-func (s *UserService) ValidateCredentials(creds entity.UserCredentials) error {
+func (s *AuthService) ValidateCredentials(creds entity.UserCredentials) error {
 	if err := validateUsername(creds.Username); err != nil {
 		return err
 	}
@@ -111,9 +133,8 @@ func (s *UserService) ValidateCredentials(creds entity.UserCredentials) error {
 	return nil
 }
 
-// The spec's patterns are latin-only, so these are deliberately narrower than
-// unicode.IsLetter/IsDigit: those accept every script, which would let a
-// username the documented pattern rejects through the service.
+// isLatinLetter is narrower than unicode.IsLetter on purpose: the spec's
+// patterns are latin-only.
 func isLatinLetter(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
@@ -121,15 +142,12 @@ func isLatinLetter(r rune) bool {
 func isDigit(r rune) bool { return r >= '0' && r <= '9' }
 
 func validateUsername(username string) error {
-	// Runes, not bytes: the length the client is told about is the length they
-	// can count, and a rejected multi-byte name must fail on its characters
-	// rather than on a byte count that happens to reach the minimum.
+	// Runes, not bytes: the length the client is told about is the one it counts.
 	if utf8.RuneCountInString(username) < usernameMinLength {
 		return entity.ErrUsernameTooShort.Loc().Time()
 	}
 
-	// i is a byte offset, so i == 0 identifies the first rune whatever its
-	// width — unlike username[0], which is only its first byte.
+	// i is a byte offset, so i == 0 is the first rune whatever its width.
 	for i, r := range username {
 		if i == 0 && !isLatinLetter(r) {
 			return entity.ErrUsernameInvalidStart.Loc().Time()
@@ -184,14 +202,9 @@ func validatePassword(password string) error {
 	return nil
 }
 
-// hashPassword derives what actually goes to the database. Only the digest is
-// ever stored: the plaintext must not outlive this call, and nothing that logs
-// or errors below may name it.
-//
-// The SHA-256 pre-pass exists because bcrypt silently truncates its input at 72
-// bytes — a long passphrase would otherwise be protected only by its prefix.
-// Hashing first gives bcrypt a fixed-width input; base64 rather than the raw
-// digest because bcrypt also stops at the first NUL byte.
+// hashPassword derives what goes to the database; only the digest is ever stored.
+// The SHA-256 pre-pass gives bcrypt a fixed-width input, because bcrypt truncates
+// at 72 bytes; base64 rather than the raw digest, because bcrypt stops at a NUL.
 func hashPassword(password string) (string, error) {
 	digest := sha256.Sum256([]byte(password))
 	encoded := base64.RawStdEncoding.EncodeToString(digest[:])
@@ -207,9 +220,8 @@ func hashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-// comparePassword mirrors hashPassword's sha256 pre-pass so bcrypt sees the
-// same fixed-width input it was given at hash time, then delegates to bcrypt
-// for the actual (salt-aware) comparison.
+// comparePassword mirrors hashPassword's pre-pass so bcrypt sees the same input
+// it was given at hash time.
 func comparePassword(hash, password string) error {
 	digest := sha256.Sum256([]byte(password))
 	encoded := base64.RawStdEncoding.EncodeToString(digest[:])

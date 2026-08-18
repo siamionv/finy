@@ -15,30 +15,13 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// fakeTokenService answers with the pair — or the failure — the case under test
-// needs the token service to have produced.
-type fakeTokenService struct {
-	pair entity.TokenPair
-	err  error
-}
-
-func (f *fakeTokenService) Mint(_ int) (entity.TokenPair, error) {
-	return f.pair, f.err
-}
-
-func login(
-	t *testing.T,
-	userSvc auth.UserService,
-	tokenSvc auth.TokenService,
-	body string,
-) *httptest.ResponseRecorder {
+func login(t *testing.T, svc auth.Authenticator, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	e := echo.New()
 	e.POST("/api/v1/auth/login", auth.New(auth.Deps{
-		Logger:       slog.New(slog.DiscardHandler),
-		UserService:  userSvc,
-		TokenService: tokenSvc,
+		Logger:        slog.New(slog.DiscardHandler),
+		Authenticator: svc,
 	}).LoginUser)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(body))
@@ -53,14 +36,10 @@ func login(
 // The 200 body is EnvelopedTokenPair: a client switching on `status` must not
 // break on the one response it actually wants.
 func TestLoginUser_OK(t *testing.T) {
-	rec := login(t,
-		&fakeUserService{user: &entity.User{ID: 142}},
-		&fakeTokenService{pair: entity.TokenPair{
-			AccessToken:  "access",
-			RefreshToken: "refresh",
-		}},
-		validBody,
-	)
+	rec := login(t, &fakeAuth{pair: entity.TokenPair{
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+	}}, validBody)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d, want 200 (%s)", rec.Code, rec.Body)
@@ -81,14 +60,10 @@ func TestLoginUser_OK(t *testing.T) {
 // An unknown username must answer exactly like a wrong password: anything
 // else turns this endpoint into a username-enumeration oracle.
 func TestLoginUser_UserNotFound(t *testing.T) {
-	rec := login(t,
-		// Stamped the way the repository stamps it, wrapped the way the service
-		// wraps it: the handler has to match through both.
-		&fakeUserService{err: cerr.New("failed to get user by username",
-			entity.ErrUserNotFound.Loc().Time().With("username", "johndoe"))},
-		&fakeTokenService{},
-		validBody,
-	)
+	// Stamped the way the repository stamps it, wrapped the way the service wraps
+	// it: the handler has to match through both.
+	rec := login(t, &fakeAuth{err: cerr.New("failed to get user by username",
+		entity.ErrUserNotFound.Loc().Time().With("username", "johndoe"))}, validBody)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)
@@ -104,12 +79,7 @@ func TestLoginUser_UserNotFound(t *testing.T) {
 }
 
 func TestLoginUser_IncorrectPassword(t *testing.T) {
-	rec := login(
-		t,
-		&fakeUserService{err: entity.ErrIncorrectPassword},
-		&fakeTokenService{},
-		validBody,
-	)
+	rec := login(t, &fakeAuth{err: entity.ErrIncorrectPassword}, validBody)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)
@@ -147,12 +117,8 @@ func TestLoginUser_CredentialRulesAreNotSpelledOut(t *testing.T) {
 	for _, tc := range rules {
 		t.Run(tc.name, func(t *testing.T) {
 			// Stamped and wrapped exactly as the service does it.
-			rec := login(t,
-				&fakeUserService{err: cerr.New("failed to validate credentials",
-					tc.err.Loc().Time()).With("username", "johndoe")},
-				&fakeTokenService{},
-				validBody,
-			)
+			rec := login(t, &fakeAuth{err: cerr.New("failed to validate credentials",
+				tc.err.Loc().Time()).With("username", "johndoe")}, validBody)
 
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)
@@ -178,12 +144,8 @@ func TestLoginUser_CredentialRulesAreNotSpelledOut(t *testing.T) {
 // A failure the layers below already classified as ours stays a 500 and tells
 // the client nothing about it.
 func TestLoginUser_InternalFailure(t *testing.T) {
-	rec := login(t,
-		&fakeUserService{err: cerr.New("failed to get user by username",
-			cerr.New("failed to select user", cerr.Internal).Loc().Time())},
-		&fakeTokenService{},
-		validBody,
-	)
+	rec := login(t, &fakeAuth{err: cerr.New("failed to get user by username",
+		cerr.New("failed to select user", cerr.Internal).Loc().Time())}, validBody)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d, want 500 (%s)", rec.Code, rec.Body)
@@ -193,11 +155,7 @@ func TestLoginUser_InternalFailure(t *testing.T) {
 // A sentinel this handler has never been taught is indistinguishable to the
 // client from a real failure — and must not become an accidental 200 or 400.
 func TestLoginUser_UnclassifiedFailure(t *testing.T) {
-	rec := login(t,
-		&fakeUserService{err: cerr.New("something new happened")},
-		&fakeTokenService{},
-		validBody,
-	)
+	rec := login(t, &fakeAuth{err: cerr.New("something new happened")}, validBody)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d, want 500 (%s)", rec.Code, rec.Body)
@@ -207,11 +165,7 @@ func TestLoginUser_UnclassifiedFailure(t *testing.T) {
 // The credentials were right and the tokens still could not be signed: ours to
 // own, and no pair may reach the client alongside the error.
 func TestLoginUser_MintFailure(t *testing.T) {
-	rec := login(t,
-		&fakeUserService{user: &entity.User{ID: 1}},
-		&fakeTokenService{err: entity.ErrMissingSigningKey.Loc().Time()},
-		validBody,
-	)
+	rec := login(t, &fakeAuth{err: entity.ErrMissingSigningKey.Loc().Time()}, validBody)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d, want 500 (%s)", rec.Code, rec.Body)
@@ -222,7 +176,7 @@ func TestLoginUser_MintFailure(t *testing.T) {
 }
 
 func TestLoginUser_MalformedPayload(t *testing.T) {
-	rec := login(t, &fakeUserService{}, &fakeTokenService{}, `{"username":`)
+	rec := login(t, &fakeAuth{}, `{"username":`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)

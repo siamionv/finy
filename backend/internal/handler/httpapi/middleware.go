@@ -11,18 +11,13 @@ import (
 	"github.com/siamionv/finy/pkg/cerr"
 )
 
-// recoverMiddleware turns a panic into an ordinary error and hands it back down
-// the chain rather than answering the client itself. Echo's stock Recover
-// writes the response and prints the stack to its own stdout logger, which
-// leaves the structured logger below with a bare 500 and no cause — the panics
-// most worth reading would be the ones with the least attached to them.
+// recoverMiddleware turns a panic into an ordinary error carrying its stack, so
+// the structured logger below sees the cause instead of a bare 500.
 func recoverMiddleware() echo.MiddlewareFunc {
 	return middleware.RecoverWithConfig(middleware.RecoverConfig{
-		// Return the error instead of calling c.Error: loggingMiddleware wraps
-		// this one, and it already renders what it logs.
+		// loggingMiddleware wraps this one and already renders what it logs.
 		DisableErrorHandler: true,
-		// Set, so echo skips its own printing — but the stack is still
-		// collected, which is what DisablePrintStack actually gates.
+		// Set so echo skips its own printing; the stack is still collected.
 		LogErrorFunc: func(_ echo.Context, err error, stack []byte) error {
 			return cerr.New("handler panicked", err, cerr.Internal).
 				Loc().
@@ -49,15 +44,9 @@ func loggingMiddleware(log *slog.Logger) echo.MiddlewareFunc {
 
 			err := next(c)
 			if err != nil && !c.Response().Committed {
-				// Echo runs HTTPErrorHandler outside the middleware chain, so
-				// for an unhandled error the response status is still unset
-				// here. Handling it now means the status logged below is the
-				// real one — and the error must not be returned again, or it
-				// would be handled twice.
-				//
-				// A handler that already answered the client still returns its
-				// error, so this log site can see it; that one is committed and
-				// needs no rendering, only recording.
+				// Echo runs HTTPErrorHandler outside the chain, so an unhandled
+				// error leaves the status unset. Handling it here makes the status
+				// logged below the real one; returning it again would double-handle it.
 				c.Error(err)
 			}
 

@@ -15,21 +15,21 @@ import (
 	"github.com/siamionv/finy/internal/entity"
 )
 
-// panickingUserService stands in for a handler dependency that blows up, so the
-// panic originates inside the real middleware chain rather than beside it.
-type panickingUserService struct{}
+// panickingAuth stands in for a handler dependency that blows up, so the panic
+// originates inside the real middleware chain rather than beside it.
+type panickingAuth struct{}
 
-func (panickingUserService) CreateUserByCreds(
+func (panickingAuth) Register(
 	_ context.Context,
 	_ entity.UserCredentials,
 ) (*entity.User, error) {
 	panic("boom")
 }
 
-func (panickingUserService) GetUserIDByCreds(
+func (panickingAuth) Login(
 	_ context.Context,
 	_ entity.UserCredentials,
-) (int, error) {
+) (entity.TokenPair, error) {
 	panic("boom")
 }
 
@@ -47,8 +47,8 @@ func serve(t *testing.T, req *http.Request) (*httptest.ResponseRecorder, []map[s
 			MaxBodySize:  "1K",
 			DrainTimeout: time.Second,
 		},
-		Logger:      logger,
-		UserService: panickingUserService{},
+		Logger:        logger,
+		Authenticator: panickingAuth{},
 	})
 
 	rec := httptest.NewRecorder()
@@ -103,7 +103,7 @@ func TestServer_LogsPanickingRequests(t *testing.T) {
 	if !strings.Contains(logged["msg"].(string), "boom") {
 		t.Errorf("error.msg = %v, want the panic value", logged["msg"])
 	}
-	if stack, _ := logged["stack"].(string); !strings.Contains(stack, "CreateUserByCreds") {
+	if stack, _ := logged["stack"].(string); !strings.Contains(stack, "Register") {
 		t.Error("error.stack does not reach the panicking frame")
 	}
 }

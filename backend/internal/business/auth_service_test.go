@@ -45,16 +45,43 @@ func (f *fakeUserRepo) GetUserByUsername(
 	return f.byUsername, nil
 }
 
+// fakeMinter records the subject Login asked a pair for.
+type fakeMinter struct {
+	gotSub int
+	pair   entity.TokenPair
+	err    error
+}
+
+func (f *fakeMinter) Mint(sub int) (entity.TokenPair, error) {
+	f.gotSub = sub
+
+	return f.pair, f.err
+}
+
+// newAuth builds the service under test with a minter the case can inspect.
+func newAuth(repo business.UserRepository) (*business.AuthService, *fakeMinter) {
+	minter := &fakeMinter{pair: entity.TokenPair{AccessToken: "access", RefreshToken: "refresh"}}
+
+	return business.NewAuthService(repo, minter), minter
+}
+
+// mustAuth is newAuth for cases that never inspect the minter.
+func mustAuth(repo business.UserRepository) *business.AuthService {
+	svc, _ := newAuth(repo)
+
+	return svc
+}
+
 // The service is the only place that knows the plaintext, and the column it
 // writes to is called password_hash. Storing the password verbatim there is the
 // bug this guards.
 func TestCreateUser_StoresADigestNotThePassword(t *testing.T) {
 	repo := &fakeUserRepo{}
-	svc := business.NewUserService(repo)
+	svc, _ := newAuth(repo)
 
 	const password = "Correct9Horse!"
 
-	if _, err := svc.CreateUserByCreds(t.Context(), entity.UserCredentials{
+	if _, err := svc.Register(t.Context(), entity.UserCredentials{
 		Username: "johndoe",
 		Password: password,
 	}); err != nil {
@@ -76,8 +103,8 @@ func TestCreateUser_SaltsEachHash(t *testing.T) {
 		t.Helper()
 
 		repo := &fakeUserRepo{}
-		if _, err := business.NewUserService(repo).
-			CreateUserByCreds(t.Context(), entity.UserCredentials{
+		if _, err := mustAuth(repo).
+			Register(t.Context(), entity.UserCredentials{
 				Username: "johndoe",
 				Password: "Correct9Horse!",
 			}); err != nil {
@@ -100,8 +127,8 @@ func TestCreateUser_AcceptsAPasswordLongerThanBcryptsLimit(t *testing.T) {
 
 	for _, password := range []string{prefix + "one", prefix + "two"} {
 		repo := &fakeUserRepo{}
-		if _, err := business.NewUserService(repo).
-			CreateUserByCreds(t.Context(), entity.UserCredentials{
+		if _, err := mustAuth(repo).
+			Register(t.Context(), entity.UserCredentials{
 				Username: "johndoe",
 				Password: password,
 			}); err != nil {
@@ -113,7 +140,7 @@ func TestCreateUser_AcceptsAPasswordLongerThanBcryptsLimit(t *testing.T) {
 func TestCreateUser_PropagatesAlreadyExists(t *testing.T) {
 	repo := &fakeUserRepo{err: entity.ErrUserAlreadyExist.Loc().Time().With("username", "johndoe")}
 
-	_, err := business.NewUserService(repo).CreateUserByCreds(t.Context(), entity.UserCredentials{
+	_, err := mustAuth(repo).Register(t.Context(), entity.UserCredentials{
 		Username: "johndoe",
 		Password: "Correct9Horse!",
 	})
@@ -153,7 +180,9 @@ func fieldValue(fields []any, key string) (any, bool) {
 	return nil, false
 }
 
-func TestGetUserIDByCreds_ReturnsIDOnMatch(t *testing.T) {
+// Login is one call, so the id the credentials resolve to must reach the minter
+// without any caller sequencing the two steps.
+func TestLogin_MintsForTheMatchedUser(t *testing.T) {
 	const password = "Correct9Horse!"
 
 	repo := &fakeUserRepo{byUsername: &entity.UserDB{
@@ -162,22 +191,26 @@ func TestGetUserIDByCreds_ReturnsIDOnMatch(t *testing.T) {
 		PasswordHash: hashForTest(t, password),
 	}}
 
-	id, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+	svc, minter := newAuth(repo)
+
+	pair, err := svc.Login(t.Context(), entity.UserCredentials{
 		Username: "johndoe",
 		Password: password,
 	})
 	if err != nil {
-		t.Fatalf("GetUserIDByCreds: %v", err)
+		t.Fatalf("Login: %v", err)
 	}
-	if id != 42 {
-		t.Errorf("got id %d, want 42", id)
+	if minter.gotSub != 42 {
+		t.Errorf("minted for sub %d, want 42", minter.gotSub)
+	}
+	if pair.AccessToken != "access" || pair.RefreshToken != "refresh" {
+		t.Errorf("got %+v, want the minted pair", pair)
 	}
 }
 
-// Two logins with the same password must both succeed even though hashPassword
-// salts each hash differently — this is the case a naive hash-equality check
-// against the stored digest gets wrong.
-func TestGetUserIDByCreds_MatchesDespiteDifferentSaltPerHash(t *testing.T) {
+// A minting failure is the caller's answer, not a partial success: no pair may
+// come back beside it.
+func TestLogin_PropagatesMintFailure(t *testing.T) {
 	const password = "Correct9Horse!"
 
 	repo := &fakeUserRepo{byUsername: &entity.UserDB{
@@ -185,31 +218,63 @@ func TestGetUserIDByCreds_MatchesDespiteDifferentSaltPerHash(t *testing.T) {
 		Username:     "johndoe",
 		PasswordHash: hashForTest(t, password),
 	}}
-	svc := business.NewUserService(repo)
 
-	for i := 0; i < 2; i++ {
-		if _, err := svc.GetUserIDByCreds(t.Context(), entity.UserCredentials{
+	minter := &fakeMinter{err: entity.ErrMissingSigningKey}
+
+	pair, err := business.NewAuthService(repo, minter).Login(t.Context(), entity.UserCredentials{
+		Username: "johndoe",
+		Password: password,
+	})
+	if !errors.Is(err, entity.ErrMissingSigningKey) {
+		t.Errorf("got %v, want ErrMissingSigningKey", err)
+	}
+	if pair != (entity.TokenPair{}) {
+		t.Errorf("got pair %+v alongside an error, want the zero value", pair)
+	}
+}
+
+// Two logins with the same password must both succeed even though hashPassword
+// salts each hash differently — this is the case a naive hash-equality check
+// against the stored digest gets wrong.
+func TestLogin_MatchesDespiteDifferentSaltPerHash(t *testing.T) {
+	const password = "Correct9Horse!"
+
+	repo := &fakeUserRepo{byUsername: &entity.UserDB{
+		ID:           1,
+		Username:     "johndoe",
+		PasswordHash: hashForTest(t, password),
+	}}
+	svc, _ := newAuth(repo)
+
+	for i := range 2 {
+		if _, err := svc.Login(t.Context(), entity.UserCredentials{
 			Username: "johndoe",
 			Password: password,
 		}); err != nil {
-			t.Fatalf("attempt %d: GetUserIDByCreds: %v", i, err)
+			t.Fatalf("attempt %d: Login: %v", i, err)
 		}
 	}
 }
 
-func TestGetUserIDByCreds_WrongPassword(t *testing.T) {
+// A wrong password must never reach the minter.
+func TestLogin_WrongPassword(t *testing.T) {
 	repo := &fakeUserRepo{byUsername: &entity.UserDB{
 		ID:           1,
 		Username:     "johndoe",
 		PasswordHash: hashForTest(t, "Correct9Horse!"),
 	}}
 
-	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+	svc, minter := newAuth(repo)
+
+	_, err := svc.Login(t.Context(), entity.UserCredentials{
 		Username: "johndoe",
 		Password: "WrongPassword9!",
 	})
 	if !errors.Is(err, entity.ErrIncorrectPassword) {
 		t.Errorf("got %v, want ErrIncorrectPassword", err)
+	}
+	if minter.gotSub != 0 {
+		t.Errorf("minted for sub %d, want no mint at all", minter.gotSub)
 	}
 
 	fields := cerr.Fields(err)
@@ -219,12 +284,12 @@ func TestGetUserIDByCreds_WrongPassword(t *testing.T) {
 	}
 }
 
-func TestGetUserIDByCreds_UserNotFound(t *testing.T) {
+func TestLogin_UserNotFound(t *testing.T) {
 	repo := &fakeUserRepo{
 		byUsernameErr: entity.ErrUserAlreadyExist,
 	} // any repo error stands in for not-found
 
-	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+	_, err := mustAuth(repo).Login(t.Context(), entity.UserCredentials{
 		Username: "johndoe",
 		Password: "Correct9Horse!",
 	})
@@ -233,10 +298,9 @@ func TestGetUserIDByCreds_UserNotFound(t *testing.T) {
 	}
 }
 
-// Login must not enforce the registration ruleset: a user whose stored
-// password predates a since-tightened policy still has to reach the
-// repository and be allowed to sign in.
-func TestGetUserIDByCreds_ReachesRepoForAWeakButPresentPassword(t *testing.T) {
+// Login must not enforce the registration ruleset: a user whose stored password
+// predates a since-tightened policy still has to reach the repository and sign in.
+func TestLogin_ReachesRepoForAWeakButPresentPassword(t *testing.T) {
 	const weakPassword = "weak"
 
 	repo := &fakeUserRepo{byUsername: &entity.UserDB{
@@ -245,22 +309,21 @@ func TestGetUserIDByCreds_ReachesRepoForAWeakButPresentPassword(t *testing.T) {
 		PasswordHash: hashForTest(t, weakPassword),
 	}}
 
-	id, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+	svc, minter := newAuth(repo)
+
+	if _, err := svc.Login(t.Context(), entity.UserCredentials{
 		Username: "jo",
 		Password: weakPassword,
-	})
-	if err != nil {
-		t.Fatalf("GetUserIDByCreds: %v", err)
+	}); err != nil {
+		t.Fatalf("Login: %v", err)
 	}
-	if id != 7 {
-		t.Errorf("got id %d, want 7", id)
+	if minter.gotSub != 7 {
+		t.Errorf("minted for sub %d, want 7", minter.gotSub)
 	}
 }
 
-func TestGetUserIDByCreds_EmptyUsername(t *testing.T) {
-	repo := &fakeUserRepo{}
-
-	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+func TestLogin_EmptyUsername(t *testing.T) {
+	_, err := mustAuth(&fakeUserRepo{}).Login(t.Context(), entity.UserCredentials{
 		Username: "",
 		Password: "Correct9Horse!",
 	})
@@ -269,10 +332,8 @@ func TestGetUserIDByCreds_EmptyUsername(t *testing.T) {
 	}
 }
 
-func TestGetUserIDByCreds_EmptyPassword(t *testing.T) {
-	repo := &fakeUserRepo{}
-
-	_, err := business.NewUserService(repo).GetUserIDByCreds(t.Context(), entity.UserCredentials{
+func TestLogin_EmptyPassword(t *testing.T) {
+	_, err := mustAuth(&fakeUserRepo{}).Login(t.Context(), entity.UserCredentials{
 		Username: "johndoe",
 		Password: "",
 	})
@@ -363,7 +424,7 @@ func TestValidateCredentials(t *testing.T) {
 		{"non-latin password", validUsername, "Пароль9Хорс!", entity.ErrPasswordInvalidCharacters},
 	}
 
-	svc := business.NewUserService(&fakeUserRepo{})
+	svc := mustAuth(&fakeUserRepo{})
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
