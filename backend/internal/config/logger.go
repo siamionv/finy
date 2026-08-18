@@ -1,9 +1,16 @@
 package config
 
 import (
-	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/siamionv/finy/internal/entity"
+)
+
+// Log formats the service knows how to build a handler for.
+const (
+	LogFormatText = "text"
+	LogFormatJSON = "json"
 )
 
 type Logger struct {
@@ -12,7 +19,8 @@ type Logger struct {
 	AddSource bool   `env:"LOGGER_ADD_SOURCE" mapstructure:"add_source"`
 }
 
-func (l Logger) ParseSlogLogLevel() (slog.Level, error) {
+// SlogLevel maps the configured level onto slog's vocabulary.
+func (l Logger) SlogLevel() (slog.Level, error) {
 	switch strings.ToLower(l.Level) {
 	case "debug":
 		return slog.LevelDebug, nil
@@ -23,6 +31,6 @@ func (l Logger) ParseSlogLogLevel() (slog.Level, error) {
 	case "error":
 		return slog.LevelError, nil
 	default:
-		return slog.LevelInfo, fmt.Errorf("unknown log level: %s", l.Level)
+		return slog.LevelInfo, entity.ErrUnknownLogLevel.Loc().Time().With("level", l.Level)
 	}
 }

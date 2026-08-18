@@ -2,100 +2,81 @@ package di
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/siamionv/finy/internal/config"
+	"github.com/siamionv/finy/internal/entity"
+	"github.com/siamionv/finy/pkg/cerr"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const (
-	loggerLevelDebug = "debug"
-	loggerLevelWarn  = "warn"
-	loggerLevelInfo  = "info"
-	loggerLevelError = "error"
-)
-
-const (
-	loggerFormatText = "text"
-	loggerFormatJSON = "json"
-)
-
 // Dependencies is the composition root: infrastructure on top, the assembled
-// object graph below it. Callers get Services, never the repositories that
-// back them.
+// object graph below it. Callers get Services, never the repositories that back them.
 type Dependencies struct {
-	Config *config.Config
 	Logger *slog.Logger
 	DB     *pgxpool.Pool
 
 	Services Services
 }
 
-func MustDependencies(ctx context.Context, config *config.Config) Dependencies {
-	db := mustDB(ctx, config.Database)
+// New builds the object graph, connecting to every backing store it needs.
+func New(ctx context.Context, cfg *config.Config) (Dependencies, error) {
+	logger, err := newLogger(cfg.Logger)
+	if err != nil {
+		return Dependencies{}, err
+	}
+
+	db, err := newDB(ctx, cfg.Database)
+	if err != nil {
+		return Dependencies{}, err
+	}
 
 	return Dependencies{
-		Config:   config,
-		Logger:   mustLogger(ctx, config.Logger),
+		Logger:   logger,
 		DB:       db,
-		Services: newServices(config, newRepositories(db)),
-	}
+		Services: newServices(cfg, newRepositories(db)),
+	}, nil
 }
 
-func mustDB(ctx context.Context, config config.Database) *pgxpool.Pool {
-	pool, err := pgxpool.New(ctx, config.PostgresDSN())
+func newDB(ctx context.Context, cfg config.Database) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.New(ctx, cfg.PostgresDSN())
 	if err != nil {
-		panic(fmt.Sprintf("create postgres pool: %v", err))
+		return nil, cerr.New("failed to create postgres pool", err, cerr.Internal).Loc().Time()
 	}
 
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		panic(fmt.Sprintf("ping postgres: %v", err))
+
+		return nil, cerr.New("failed to ping postgres", err, cerr.Internal).Loc().Time()
 	}
 
-	return pool
+	return pool, nil
 }
 
-func mustLogger(_ context.Context, config config.Logger) *slog.Logger {
-	output := os.Stdout
-
-	var logLevel slog.Level
-	switch config.Level {
-	case loggerLevelDebug:
-		logLevel = slog.LevelDebug
-	case loggerLevelWarn:
-		logLevel = slog.LevelWarn
-	case loggerLevelInfo:
-		logLevel = slog.LevelInfo
-	case loggerLevelError:
-		logLevel = slog.LevelError
-	default:
-		panic(fmt.Sprintf("unknown logger level: %v", config.Level))
+func newLogger(cfg config.Logger) (*slog.Logger, error) {
+	level, err := cfg.SlogLevel()
+	if err != nil {
+		return nil, err
 	}
 
-	options := &slog.HandlerOptions{
-		AddSource: config.AddSource,
-		Level:     logLevel,
-	}
+	options := &slog.HandlerOptions{AddSource: cfg.AddSource, Level: level}
 
 	var handler slog.Handler
-	switch config.Format {
-	case loggerFormatText:
-		handler = slog.NewTextHandler(output, options)
-	case loggerFormatJSON:
-		handler = slog.NewJSONHandler(output, options)
+	switch cfg.Format {
+	case config.LogFormatText:
+		handler = slog.NewTextHandler(os.Stdout, options)
+	case config.LogFormatJSON:
+		handler = slog.NewJSONHandler(os.Stdout, options)
 	default:
-		panic(fmt.Sprintf("unknown logger format: %v", config.Format))
+		return nil, entity.ErrUnknownLogFormat.Loc().Time().With("format", cfg.Format)
 	}
 
-	logger := slog.New(handler)
-
-	return logger
+	return slog.New(handler), nil
 }
 
+// Close releases every backing store the graph holds open.
 func (d Dependencies) Close() error {
 	d.DB.Close()
 

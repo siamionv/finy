@@ -51,8 +51,7 @@ func buildInsertUserQuery(dto entity.CreateUser) (string, []any, error) {
 		)).
 		ToSql()
 	if err != nil {
-		// Internal, not Invalid: the query is built from constants and a struct
-		// we control, so a failure here is our bug, never the caller's input.
+		// Internal, not Invalid: the query is built from values we control.
 		return "", nil, entity.ErrFailedToBuildQuery.
 			Join(err).
 			Loc().
@@ -71,8 +70,7 @@ func buildGetUserByUsernameQuery(username string) (string, []any, error) {
 		Where(sq.Eq{usersColUsername: username}).
 		ToSql()
 	if err != nil {
-		// Internal, not Invalid: the query is built from constants and a struct
-		// we control, so a failure here is our bug, never the caller's input.
+		// Internal, not Invalid: the query is built from values we control.
 		return "", nil, entity.ErrFailedToBuildQuery.
 			Join(err).
 			Loc().

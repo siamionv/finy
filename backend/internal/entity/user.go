@@ -3,9 +3,16 @@ package entity
 import (
 	"time"
 
-	"github.com/siamionv/finy/internal/generated/openapi"
+	"github.com/siamionv/finy/pkg/cerr"
 )
 
+var (
+	ErrUserAlreadyExist   = cerr.New("user already exists", cerr.Conflict)
+	ErrUserNotFound       = cerr.New("user not found", cerr.NotFound)
+	ErrFailedToCreateUser = cerr.New("failed to create user", cerr.Internal)
+)
+
+// User is the account as the rest of the service sees it: never the password hash.
 type User struct {
 	ID        int
 	Username  string
@@ -13,15 +20,13 @@ type User struct {
 	CreatedAt time.Time
 }
 
-func (u User) ToOpenAPI() openapi.User {
-	return openapi.User{
-		Id:        u.ID,
-		Username:  u.Username,
-		IconUrl:   u.IconURL,
-		CreatedAt: u.CreatedAt.Format(time.RFC3339),
-	}
+// CreateUser is what the user repository needs to insert a new account.
+type CreateUser struct {
+	Username     string
+	PasswordHash string
 }
 
+// UserDB is the stored row, hash included.
 type UserDB struct {
 	ID           int
 	Username     string
@@ -30,6 +35,7 @@ type UserDB struct {
 	CreatedAt    time.Time
 }
 
+// IntoUser drops the hash, leaving what may travel past the business layer.
 func (u UserDB) IntoUser() User {
 	return User{
 		ID:        u.ID,

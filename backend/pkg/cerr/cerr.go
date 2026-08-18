@@ -1,5 +1,5 @@
-// Package cerr provides the single error constructor used across go-common:
-// a message, the errors it wraps, and structured fields for logs and traces.
+// Package cerr provides the single error constructor used across finy: a message,
+// the errors it wraps, and structured fields for logs and traces.
 package cerr
 
 import (
@@ -19,13 +19,12 @@ func init() {
 		return
 	}
 	// file looks like /Users/.../finy/backend/pkg/cerr/cerr.go
-	// this package's known path relative to repo root:
 	const knownSuffix = "pkg/cerr/cerr.go"
 	basePath = strings.TrimSuffix(file, knownSuffix)
 }
 
-// Error carries a human message, the errors it wraps (sentinels, kinds and
-// causes — all equal for identity), and key/value fields for logs and traces.
+// Error carries a human message, the errors it wraps (sentinels, kinds and causes,
+// all equal for identity), and key/value fields for logs and traces.
 type Error struct {
 	msg    string
 	errs   []error
@@ -44,15 +43,9 @@ func New(msg string, errs ...error) *Error {
 	return e
 }
 
-// With returns a new error carrying kv that wraps e. It never mutates the
-// receiver: predefined errors are shared package-level values, and mutating
-// them would pollute every user of the package.
-//
-// e is wrapped rather than copied field-by-field, so it stays in the chain and
-// errors.Is(Sentinel.With(...), Sentinel) still holds. That identity is the
-// whole point: Loc and Time are both built on With, so a sentinel stamped at
-// its call site must still answer to the sentinel it was minted from. msg is
-// left empty so Error() renders e's message once rather than twice.
+// With returns a new error carrying kv that wraps e. It never mutates the receiver:
+// sentinels are shared package-level values. e is wrapped rather than copied, so
+// errors.Is(Sentinel.With(...), Sentinel) still holds.
 func (e *Error) With(kv ...any) *Error {
 	c := &Error{errs: []error{e}}
 	if len(kv) > 0 {
@@ -62,18 +55,14 @@ func (e *Error) With(kv ...any) *Error {
 	return c
 }
 
-// Wrap returns a new error that attaches cause to e without restating e's
-// message: msg is left empty, so Error() renders "<cause>: <e's message>"
-// with no duplication, while e itself stays in the chain so errors.Is(result, e)
-// still holds. Use this when a predefined error already carries the message
-// you want and the only thing left to add is the cause.
+// Wrap attaches cause to e without restating e's message. Use it when a predefined
+// error already carries the message and the only thing left to add is the cause.
 func (e *Error) Wrap(cause error) *Error {
 	return New("", cause, e)
 }
 
-// Join returns a new error wrapping e plus errs (typically kind values). e
-// stays in the chain rather than being copied, so errors.Is still matches it
-// alongside every joined error. nil entries in errs are dropped.
+// Join returns a new error wrapping e plus errs (typically kind values). nil
+// entries are dropped, and errors.Is still matches e alongside every joined error.
 func (e *Error) Join(errs ...error) *Error {
 	newErrs := make([]error, 0, len(errs)+1)
 	newErrs = append(newErrs, e)
@@ -85,19 +74,16 @@ func (e *Error) Join(errs ...error) *Error {
 	return &Error{errs: newErrs}
 }
 
-// Error renders msg followed by the message of each wrapped error, in the order
-// given, joined with ": ". kind values are skipped — they classify, they are
-// not prose. Fields are deliberately absent: they belong to LogValue/Fields.
+// Error renders msg followed by each wrapped error's message, joined with ": ".
+// kind values are skipped: they classify, they are not prose.
 func (e *Error) Error() string {
 	parts := make([]string, 0, len(e.errs)+1)
 	if e.msg != "" {
 		parts = append(parts, e.msg)
 	}
 	for _, err := range e.errs {
-		// Direct assertion, not errors.As: this must match only when err
-		// itself is a kind value, not when a wrapped *Error happens to
-		// carry one deeper in its own chain.
-		if _, ok := err.(kind); ok { //nolint:errorlint
+		//nolint:errorlint // must match only a top-level kind, not one nested deeper
+		if _, ok := err.(kind); ok {
 			continue
 		}
 		parts = append(parts, err.Error())
@@ -108,9 +94,8 @@ func (e *Error) Error() string {
 // Unwrap exposes every wrapped error so errors.Is/As walk the whole tree.
 func (e *Error) Unwrap() []error { return e.errs }
 
-// LogValue implements slog.LogValuer: the rendered message plus every field
-// collected from the chain, so `logger.Error("...", "error", err)` emits
-// structured attributes instead of a flat string.
+// LogValue implements slog.LogValuer: the rendered message plus every field in the
+// chain, so logging an *Error emits structured attributes instead of a flat string.
 func (e *Error) LogValue() slog.Value {
 	fields := Fields(e)
 	attrs := make([]slog.Attr, 0, 1+len(fields)/2)
@@ -125,10 +110,8 @@ func (e *Error) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
-// Loc stamps e with the file:line of its caller. Like Time, it belongs at the
-// site that mints the error and nowhere else: Fields walks the whole chain, so
-// a second Loc further up emits a second "cerr.location" attribute rather than
-// replacing the first.
+// Loc stamps e with the file:line of its caller. Call it only where the error is
+// minted: a second Loc further up adds an attribute rather than replacing the first.
 func (e *Error) Loc() *Error {
 	_, file, line, ok := runtime.Caller(1)
 	if !ok {
@@ -150,9 +133,8 @@ func (e *Error) Loc() *Error {
 	return e.With("cerr.location", loc)
 }
 
-// Time stamps e with the moment it was minted. Call it where the error is
-// created, not where it is handled: the value is meant to be the origin time,
-// and re-stamping higher up would only record how long the unwinding took.
+// Time stamps e with the moment it was minted. Call it where the error is created,
+// not where it is handled.
 func (e *Error) Time() *Error {
 	return e.With("cerr.timestamp", time.Now())
 }
@@ -169,15 +151,12 @@ func collect(err error, out *[]any) {
 	if err == nil {
 		return
 	}
-	// Direct assertion, not errors.As: recursion below already walks the
-	// Unwrap chain, so matching *Error at any depth here would double-count
-	// fields from nested *Error values.
-	if e, ok := err.(*Error); ok { //nolint:errorlint
+	//nolint:errorlint // recursion below walks the chain; matching at depth double-counts
+	if e, ok := err.(*Error); ok {
 		*out = append(*out, e.fields...)
 	}
-	// Checking for the Unwrap capability, not a specific error type, so
-	// errors.As doesn't apply here.
-	switch u := err.(type) { //nolint:errorlint
+	//nolint:errorlint // checking for the Unwrap capability, not a concrete type
+	switch u := err.(type) {
 	case interface{ Unwrap() error }:
 		collect(u.Unwrap(), out)
 	case interface{ Unwrap() []error }:

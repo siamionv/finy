@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/siamionv/finy/internal/business"
-	"github.com/siamionv/finy/internal/config"
 	"github.com/siamionv/finy/internal/entity"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -14,11 +13,11 @@ import (
 
 const testSecret = "test-secret-that-is-long-enough-32"
 
-func testJWTConfig() config.JWT {
-	return config.JWT{
-		Secret:              testSecret,
-		AccessTokenTimeout:  15 * time.Minute,
-		RefreshTokenTimeout: 30 * 24 * time.Hour,
+func testTokenSettings() entity.TokenSettings {
+	return entity.TokenSettings{
+		Secret:     testSecret,
+		AccessTTL:  15 * time.Minute,
+		RefreshTTL: 30 * 24 * time.Hour,
 	}
 }
 
@@ -55,7 +54,7 @@ func claimTime(t *testing.T, claims jwt.MapClaims, name string) time.Time {
 // have to verify under the configured key and name the user they were minted
 // for, or the login is worthless.
 func TestMint_SignsBothTokensForTheSubject(t *testing.T) {
-	pair, err := business.NewTokenService(testJWTConfig()).Mint(42)
+	pair, err := business.NewTokenService(testTokenSettings()).Mint(42)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -81,7 +80,7 @@ func TestMint_SignsBothTokensForTheSubject(t *testing.T) {
 // requests for a month — exactly what the 15-minute access token exists to
 // prevent.
 func TestMint_MarksTheTwoTokensApart(t *testing.T) {
-	pair, err := business.NewTokenService(testJWTConfig()).Mint(1)
+	pair, err := business.NewTokenService(testTokenSettings()).Mint(1)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -105,10 +104,10 @@ func TestMint_MarksTheTwoTokensApart(t *testing.T) {
 // spec documents them to clients. Measured as exp-iat so the assertion does not
 // race the clock.
 func TestMint_HonoursConfiguredLifetimes(t *testing.T) {
-	cfg := config.JWT{
-		Secret:              testSecret,
-		AccessTokenTimeout:  time.Minute,
-		RefreshTokenTimeout: 72 * time.Hour,
+	cfg := entity.TokenSettings{
+		Secret:     testSecret,
+		AccessTTL:  time.Minute,
+		RefreshTTL: 72 * time.Hour,
 	}
 
 	pair, err := business.NewTokenService(cfg).Mint(7)
@@ -121,8 +120,8 @@ func TestMint_HonoursConfiguredLifetimes(t *testing.T) {
 		token string
 		want  time.Duration
 	}{
-		{"access", pair.AccessToken, cfg.AccessTokenTimeout},
-		{"refresh", pair.RefreshToken, cfg.RefreshTokenTimeout},
+		{"access", pair.AccessToken, cfg.AccessTTL},
+		{"refresh", pair.RefreshToken, cfg.RefreshTTL},
 	} {
 		claims := parseWith(t, tc.token, testSecret)
 
@@ -140,7 +139,7 @@ func TestMint_HonoursConfiguredLifetimes(t *testing.T) {
 func TestMint_StampsBothTokensAtTheSameInstant(t *testing.T) {
 	before := time.Now()
 
-	pair, err := business.NewTokenService(testJWTConfig()).Mint(3)
+	pair, err := business.NewTokenService(testTokenSettings()).Mint(3)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -164,7 +163,7 @@ func TestMint_StampsBothTokensAtTheSameInstant(t *testing.T) {
 // This is the test that fails if Mint ever signs with a constant or an empty
 // key, which would let anyone mint tokens for any user.
 func TestMint_BindsSignatureToTheConfiguredSecret(t *testing.T) {
-	pair, err := business.NewTokenService(testJWTConfig()).Mint(5)
+	pair, err := business.NewTokenService(testTokenSettings()).Mint(5)
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
@@ -185,7 +184,7 @@ func TestMint_BindsSignatureToTheConfiguredSecret(t *testing.T) {
 
 // Different users must not receive the same token, whatever the timing.
 func TestMint_SeparatesSubjects(t *testing.T) {
-	svc := business.NewTokenService(testJWTConfig())
+	svc := business.NewTokenService(testTokenSettings())
 
 	first, err := svc.Mint(1)
 	if err != nil {
@@ -208,7 +207,7 @@ func TestMint_SeparatesSubjects(t *testing.T) {
 // HMAC over an empty key produces a signature anyone can forge, and the library
 // signs one happily. Refusing beats issuing a token that verifies for everybody.
 func TestMint_RefusesToSignWithoutAKey(t *testing.T) {
-	cfg := testJWTConfig()
+	cfg := testTokenSettings()
 	cfg.Secret = ""
 
 	pair, err := business.NewTokenService(cfg).Mint(1)

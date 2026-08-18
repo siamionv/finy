@@ -6,11 +6,8 @@ import (
 	"github.com/siamionv/finy/internal/adapter"
 )
 
-// repositories are the persistence adapters. The type is deliberately
-// unexported: only newServices ever holds one, so "no transport talks to the
-// database directly" is enforced by the compiler rather than by review.
-//
-// It grows by one field per repository.
+// repositories are the persistence adapters. Unexported on purpose: only
+// newServices holds one, so the compiler keeps transports away from the database.
 type repositories struct {
 	user *adapter.UserRepository
 }

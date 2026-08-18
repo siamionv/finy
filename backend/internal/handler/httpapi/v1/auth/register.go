@@ -17,18 +17,15 @@ func (h *Handler) RegisterUser(c echo.Context) error {
 		return h.handleRegisterUserInvalidPayload(c, err)
 	}
 
-	var credentials entity.UserCredentials
-	credentials.FromOpenAPI(request)
-
-	user, err := h.userSvc.CreateUserByCreds(c.Request().Context(), credentials)
+	user, err := h.userSvc.CreateUserByCreds(c.Request().Context(), credentialsFromRequest(request))
 	if err != nil {
 		return h.handleCreateUserError(c, err)
 	}
 
-	response := user.ToOpenAPI()
+	response := userToResponse(*user)
 
-	// Enveloped like every other response from this endpoint: a client that
-	// switches on `status` must not have to special-case the success path.
+	// Enveloped like every other response, so a client switching on `status` need
+	// not special-case success.
 	return c.JSON(http.StatusCreated, openapi.EnvelopedUser{
 		Status: openapi.Success,
 		Data:   &response,
@@ -124,14 +121,11 @@ func (h *Handler) handleCreateUserError(c echo.Context, err error) error {
 	}
 
 	if len(fields) == 0 {
-		// The error matched no sentinel this handler knows, so the client gets
-		// the same opaque 500 as a real failure. Naming that in the chain is
-		// what separates "the database was down" from "a new sentinel reached
-		// the transport and nobody taught it how to answer".
+		// Matched nothing this handler knows: same opaque 500, but the chain says why.
 		return fail(c, http.StatusInternalServerError, openapi.Envelope{
 			Status: openapi.Failure,
 			Error:  new("failed to create user"),
-		}, cerr.New("unclassified error from CreateUser", err, cerr.Internal))
+		}, cerr.New("unclassified error from CreateUser", err, cerr.Internal).Loc().Time())
 	}
 
 	return fail(c, http.StatusBadRequest, openapi.EnvelopedValidationError{
@@ -144,8 +138,7 @@ func (h *Handler) handleCreateUserError(c echo.Context, err error) error {
 }
 
 func (h *Handler) handleRegisterUserInvalidPayload(c echo.Context, cause error) error {
-	// Root error: c.Bind failed before any layer of ours ran, so this is the
-	// only place that can say where and on what.
+	// Root error: c.Bind failed before any layer of ours ran.
 	err := cerr.New("failed to bind register user request", cause, cerr.Invalid).
 		Loc().
 		Time().

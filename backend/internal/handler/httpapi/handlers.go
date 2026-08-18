@@ -9,9 +9,6 @@ import (
 
 // handlers implements the generated openapi.ServerInterface. It holds no logic:
 // every operation delegates to the handler group that owns its OpenAPI tag.
-// Centralising the delegation keeps "which type serves this operation" a single
-// grep, and makes a newly generated operation fail to compile here — next to
-// the fix — rather than at the RegisterHandlers call site.
 type handlers struct {
 	auth *auth.Handler
 }
