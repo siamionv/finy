@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/siamionv/finy/internal/entity"
+	"github.com/siamionv/finy/pkg/cerr"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -73,14 +74,33 @@ func (s *TokenService) Refresh(refreshToken string) (entity.TokenPair, error) {
 
 	sub, err := s.verify(refreshToken, tokenTypeRefresh)
 	if err != nil {
-		return entity.TokenPair{}, err
+		return entity.TokenPair{}, entity.ErrInvalidRefreshToken.Wrap(err).Loc().Time()
 	}
 
 	return s.Mint(sub)
 }
 
+// Authenticate verifies an access token and reports whose it is. It is the way
+// in for a guarded request, the counterpart of the Mint a login ends with.
+func (s *TokenService) Authenticate(accessToken string) (int, error) {
+	// An empty key verifies every signature an attacker cares to compute, so the
+	// guard matters more on this side than it does on the minting one.
+	if s.settings.Secret == "" {
+		return 0, entity.ErrMissingSigningKey.Loc().Time()
+	}
+
+	sub, err := s.verify(accessToken, tokenTypeAccess)
+	if err != nil {
+		return 0, entity.ErrInvalidAccessToken.Wrap(err).Loc().Time()
+	}
+
+	return sub, nil
+}
+
 // verify parses and validates a token, and checks it carries the expected type,
 // so a refresh token can never be replayed as an access token or vice versa.
+// Failures are described here, not classified: only the caller knows which token
+// it asked about, so only the caller can name the sentinel that fits.
 func (s *TokenService) verify(token string, wantType string) (int, error) {
 	claims := tokenClaims{}
 
@@ -90,17 +110,24 @@ func (s *TokenService) verify(token string, wantType string) (int, error) {
 		func(t *jwt.Token) (any, error) { return []byte(s.settings.Secret), nil },
 		jwt.WithValidMethods([]string{signingMethod.Alg()}),
 	)
-	if err != nil || !parsed.Valid {
-		return 0, entity.ErrInvalidRefreshToken.Loc().Time()
+	if err != nil {
+		return 0, cerr.New("failed to parse token", err).Loc().Time()
+	}
+
+	if !parsed.Valid {
+		return 0, cerr.New("token did not validate").Loc().Time()
 	}
 
 	if claims.TokenType != wantType {
-		return 0, entity.ErrInvalidRefreshToken.Loc().Time()
+		return 0, cerr.New("unexpected token type").
+			With("want", wantType, "got", claims.TokenType).
+			Loc().
+			Time()
 	}
 
 	sub, err := strconv.Atoi(claims.Subject)
 	if err != nil {
-		return 0, entity.ErrInvalidRefreshToken.Loc().Time()
+		return 0, cerr.New("token subject is not a user id", err).Loc().Time()
 	}
 
 	return sub, nil

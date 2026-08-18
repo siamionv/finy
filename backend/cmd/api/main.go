@@ -51,11 +51,17 @@ func run() int {
 		return 1
 	}
 
-	srv := httpapi.New(httpapi.Deps{
+	srv, err := httpapi.New(httpapi.Deps{
 		Config:        cfg.HTTP,
 		Logger:        deps.Logger,
 		Authenticator: deps.Services.Auth,
+		TokenVerifier: deps.Services.Tokens,
 	})
+	if err != nil {
+		deps.Logger.Error("failed to build api", "error", err)
+
+		return 1
+	}
 
 	if err := srv.Run(ctx); err != nil {
 		deps.Logger.Error("api stopped", "error", err)

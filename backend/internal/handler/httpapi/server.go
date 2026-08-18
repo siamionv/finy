@@ -13,6 +13,7 @@ import (
 
 	"github.com/siamionv/finy/internal/config"
 	"github.com/siamionv/finy/internal/generated/openapi"
+	"github.com/siamionv/finy/internal/handler/httpapi/authn"
 	"github.com/siamionv/finy/internal/handler/httpapi/v1/auth"
 )
 
@@ -24,6 +25,7 @@ type Deps struct {
 	Logger *slog.Logger
 
 	Authenticator auth.Authenticator
+	TokenVerifier authn.TokenVerifier
 }
 
 // Server owns the echo instance and its lifecycle. Echo does not escape this package.
@@ -34,7 +36,10 @@ type Server struct {
 	abortInflight context.CancelFunc
 }
 
-func New(deps Deps) *Server {
+// New assembles the router. It fails only on a defect in the embedded spec,
+// which must stop the process: the alternative is serving every guarded route
+// wide open.
+func New(deps Deps) (*Server, error) {
 	// Parent of every in-flight request context. Deliberately not derived from the
 	// signal context: cancelling it is the last resort, after the drain window.
 	baseCtx, abortInflight := context.WithCancel(context.Background())
@@ -56,14 +61,23 @@ func New(deps Deps) *Server {
 	e.Use(recoverMiddleware())
 	e.Use(middleware.BodyLimit(deps.Config.MaxBodySize))
 
-	openapi.RegisterHandlers(e, newHandlers(deps))
+	guarded, err := guardedOperations(authn.Middleware(deps.TokenVerifier))
+	if err != nil {
+		abortInflight()
+
+		return nil, err
+	}
+
+	openapi.RegisterHandlersWithOptions(e, newHandlers(deps), openapi.RegisterHandlersOptions{
+		OperationMiddlewares: guarded,
+	})
 
 	return &Server{
 		echo:          e,
 		logger:        deps.Logger,
 		config:        deps.Config,
 		abortInflight: abortInflight,
-	}
+	}, nil
 }
 
 // Run serves until ctx is cancelled, then drains. It blocks.

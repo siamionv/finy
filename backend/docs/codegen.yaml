@@ -4,3 +4,9 @@ generate:
   echo-server: true
   embedded-spec: true
 output: openapi.gen.go
+compatibility:
+  # Codegen normalizes operationIds to Go names ("login-user" -> "LoginUser")
+  # and, by default, writes that back into the embedded spec — while keying
+  # OperationMiddlewares by the raw id. The server reads the embedded spec to
+  # decide which operations to guard, so the two have to agree.
+  preserve-original-operation-id-casing-in-embedded-spec: true

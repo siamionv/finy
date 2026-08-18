@@ -2,11 +2,14 @@ package business_test
 
 import (
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/siamionv/finy/internal/business"
 	"github.com/siamionv/finy/internal/entity"
+	"github.com/siamionv/finy/pkg/cerr"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -311,5 +314,121 @@ func TestRefresh_RejectsATokenSignedUnderAForeignKey(t *testing.T) {
 	_, err = business.NewTokenService(testTokenSettings()).Refresh(minted.RefreshToken)
 	if !errors.Is(err, entity.ErrInvalidRefreshToken) {
 		t.Fatalf("err = %v, want %v", err, entity.ErrInvalidRefreshToken)
+	}
+}
+
+// The guard's whole job rests on this: a token this service minted names the
+// user it was minted for, and says so under the key it was signed with.
+func TestAuthenticate_NamesTheSubjectOfAnAccessToken(t *testing.T) {
+	svc := business.NewTokenService(testTokenSettings())
+
+	minted, err := svc.Mint(42)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	sub, err := svc.Authenticate(minted.AccessToken)
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	if sub != 42 {
+		t.Errorf("sub = %d, want 42", sub)
+	}
+}
+
+// The mirror of TestRefresh_RejectsAnAccessToken, and the reason token_type
+// exists: one long-lived credential must never open a door the short-lived one
+// was minted for.
+func TestAuthenticate_RejectsARefreshToken(t *testing.T) {
+	svc := business.NewTokenService(testTokenSettings())
+
+	minted, err := svc.Mint(1)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	_, err = svc.Authenticate(minted.RefreshToken)
+	if !errors.Is(err, entity.ErrInvalidAccessToken) {
+		t.Fatalf("err = %v, want %v", err, entity.ErrInvalidAccessToken)
+	}
+}
+
+func TestAuthenticate_RejectsGarbage(t *testing.T) {
+	svc := business.NewTokenService(testTokenSettings())
+
+	_, err := svc.Authenticate("not-a-token")
+	if !errors.Is(err, entity.ErrInvalidAccessToken) {
+		t.Fatalf("err = %v, want %v", err, entity.ErrInvalidAccessToken)
+	}
+}
+
+func TestAuthenticate_RejectsATokenSignedUnderAForeignKey(t *testing.T) {
+	foreign := testTokenSettings()
+	foreign.Secret = "another-secret-that-is-long-enough"
+
+	minted, err := business.NewTokenService(foreign).Mint(1)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	_, err = business.NewTokenService(testTokenSettings()).Authenticate(minted.AccessToken)
+	if !errors.Is(err, entity.ErrInvalidAccessToken) {
+		t.Fatalf("err = %v, want %v", err, entity.ErrInvalidAccessToken)
+	}
+}
+
+// A lifetime nobody enforces is a lifetime nobody has.
+func TestAuthenticate_RejectsAnExpiredToken(t *testing.T) {
+	expired := testTokenSettings()
+	expired.AccessTTL = -time.Minute
+
+	minted, err := business.NewTokenService(expired).Mint(1)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	_, err = business.NewTokenService(testTokenSettings()).Authenticate(minted.AccessToken)
+	if !errors.Is(err, entity.ErrInvalidAccessToken) {
+		t.Fatalf("err = %v, want %v", err, entity.ErrInvalidAccessToken)
+	}
+}
+
+// With no key, HMAC verification succeeds against a signature anybody can
+// reproduce, so refusing to verify is the only safe answer — and it is a
+// misconfiguration, not a rejected client, so it must not read as Unauthorized.
+func TestAuthenticate_RefusesToVerifyWithoutAKey(t *testing.T) {
+	settings := testTokenSettings()
+	settings.Secret = ""
+
+	_, err := business.NewTokenService(settings).Authenticate("anything")
+	if !errors.Is(err, entity.ErrMissingSigningKey) {
+		t.Fatalf("err = %v, want %v", err, entity.ErrMissingSigningKey)
+	}
+
+	if !errors.Is(err, cerr.Internal) {
+		t.Errorf("err = %v, want it to classify as internal", err)
+	}
+}
+
+// Rejections have to reach the log saying which check failed: a 401 that only
+// says "invalid" is one nobody can debug.
+func TestAuthenticate_ExplainsTheRejectionToTheLog(t *testing.T) {
+	svc := business.NewTokenService(testTokenSettings())
+
+	minted, err := svc.Mint(1)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	_, err = svc.Authenticate(minted.RefreshToken)
+
+	if !strings.Contains(err.Error(), "unexpected token type") {
+		t.Errorf("err = %q, want it to name the failed check", err)
+	}
+
+	fields := cerr.Fields(err)
+	if !slices.Contains(fields, "got") {
+		t.Errorf("fields = %v, want the offending token type attached", fields)
 	}
 }
