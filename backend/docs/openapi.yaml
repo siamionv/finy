@@ -335,10 +335,29 @@ components:
               $ref: '#/components/schemas/HealthStatus'
 
 
+  # An operation is public unless it says otherwise. To guard one, give it:
+  #
+  #     security:
+  #       - jwt-auth: []
+  #     responses:
+  #       '401':
+  #         $ref: '#/components/responses/Unauthorized'
+  #
+  # That is the whole opt-in: the server reads this spec at startup and puts the
+  # authentication middleware in front of every operation carrying `security`.
   securitySchemes:
     jwt-auth:
       type: http
       scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Access token issued by /api/v1/auth/login or /api/v1/auth/refresh.
+        Press Authorize and paste the raw access_token value; the "Bearer "
+        prefix is added for you.
   responses:
-    ResponseStatus:
-      description: ''
+    Unauthorized:
+      description: Missing or Invalid Access Token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Envelope'

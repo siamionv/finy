@@ -40,6 +40,14 @@ func (panickingAuth) Refresh(
 	panic("boom")
 }
 
+// unusedVerifier satisfies the guard's dependency for a spec that guards nothing:
+// reaching it would mean the chain protected a route the spec left public.
+type unusedVerifier struct{}
+
+func (unusedVerifier) Authenticate(_ string) (int, error) {
+	panic("the spec guards no operation, so nothing should authenticate")
+}
+
 // serve drives a request through the chain New assembles — the ordering is the
 // thing under test, so it must not be restated here.
 func serve(t *testing.T, req *http.Request) (*httptest.ResponseRecorder, []map[string]any) {
@@ -48,7 +56,7 @@ func serve(t *testing.T, req *http.Request) (*httptest.ResponseRecorder, []map[s
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	server := New(Deps{
+	server, err := New(Deps{
 		Config: config.HTTP{
 			Addr:         "127.0.0.1:0",
 			MaxBodySize:  "1K",
@@ -56,7 +64,11 @@ func serve(t *testing.T, req *http.Request) (*httptest.ResponseRecorder, []map[s
 		},
 		Logger:        logger,
 		Authenticator: panickingAuth{},
+		TokenVerifier: unusedVerifier{},
 	})
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
 
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)

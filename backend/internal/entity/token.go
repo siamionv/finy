@@ -10,6 +10,7 @@ var (
 	ErrMissingSigningKey   = cerr.New("token signing key is not configured", cerr.Internal)
 	ErrFailedToMintToken   = cerr.New("failed to mint token", cerr.Internal)
 	ErrInvalidRefreshToken = cerr.New("refresh token is invalid", cerr.Invalid)
+	ErrInvalidAccessToken  = cerr.New("access token is invalid", cerr.Unauthorized)
 )
 
 // TokenSettings is the signing key and lifetimes the token service mints against.
