@@ -37,6 +37,7 @@ func New(deps Deps) *Handler {
 type Authenticator interface {
 	Register(ctx context.Context, creds entity.UserCredentials) (*entity.User, error)
 	Login(ctx context.Context, creds entity.UserCredentials) (entity.TokenPair, error)
+	Refresh(ctx context.Context, refreshToken string) (entity.TokenPair, error)
 }
 
 // fail renders body to the client and hands err back up to the single log site in

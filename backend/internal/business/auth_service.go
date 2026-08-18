@@ -27,10 +27,10 @@ const passwordSpecialSymbols = "^$*.[]{}()?\"!@#%&/\\,><':;|_~`+=-"
 // proving one. Both are single calls, so no transport has to sequence them.
 type AuthService struct {
 	userRepo UserRepository
-	tokens   TokenMinter
+	tokens   TokenIssuer
 }
 
-func NewAuthService(userRepo UserRepository, tokens TokenMinter) *AuthService {
+func NewAuthService(userRepo UserRepository, tokens TokenIssuer) *AuthService {
 	return &AuthService{userRepo: userRepo, tokens: tokens}
 }
 
@@ -41,11 +41,12 @@ type UserRepository interface {
 	GetUserByUsername(ctx context.Context, username string) (*entity.UserDB, error)
 }
 
-// TokenMinter is the slice of the token service Login needs. Declared here for
+// TokenIssuer is the slice of the token service Login needs. Declared here for
 // the same reason UserRepository is: the consumer owns the shape it depends on,
 // even when the provider is another business object.
-type TokenMinter interface {
+type TokenIssuer interface {
 	Mint(sub int) (entity.TokenPair, error)
+	Refresh(refreshToken string) (entity.TokenPair, error)
 }
 
 // Register validates the credentials and creates the account they describe.
@@ -97,6 +98,14 @@ func (s *AuthService) Login(
 	}
 
 	return s.tokens.Mint(userID)
+}
+
+// Refresh exchanges a presented refresh token for a brand new pair.
+func (s *AuthService) Refresh(
+	_ context.Context,
+	refreshToken string,
+) (entity.TokenPair, error) {
+	return s.tokens.Refresh(refreshToken)
 }
 
 // userIDByCreds only checks that both fields are present: gating login on the
