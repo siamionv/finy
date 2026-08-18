@@ -33,6 +33,13 @@ func (panickingAuth) Login(
 	panic("boom")
 }
 
+func (panickingAuth) Refresh(
+	_ context.Context,
+	_ string,
+) (entity.TokenPair, error) {
+	panic("boom")
+}
+
 // serve drives a request through the chain New assembles — the ordering is the
 // thing under test, so it must not be restated here.
 func serve(t *testing.T, req *http.Request) (*httptest.ResponseRecorder, []map[string]any) {

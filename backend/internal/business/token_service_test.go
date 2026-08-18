@@ -219,3 +219,97 @@ func TestMint_RefusesToSignWithoutAKey(t *testing.T) {
 		t.Errorf("tokens issued alongside the error: %+v", pair)
 	}
 }
+
+// A refresh must yield a working pair for the same subject the presented
+// refresh token named.
+func TestRefresh_MintsANewPairForTheSameSubject(t *testing.T) {
+	svc := business.NewTokenService(testTokenSettings())
+
+	minted, err := svc.Mint(9)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	refreshed, err := svc.Refresh(minted.RefreshToken)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	sub, err := parseWith(t, refreshed.AccessToken, testSecret).GetSubject()
+	if err != nil {
+		t.Fatalf("subject: %v", err)
+	}
+	if sub != "9" {
+		t.Errorf("sub = %q, want %q", sub, "9")
+	}
+}
+
+// The refreshed pair must be independently valid, correctly typed tokens of its
+// own — not the presented refresh token echoed back as the new access token.
+func TestRefresh_IssuesATypedPair(t *testing.T) {
+	svc := business.NewTokenService(testTokenSettings())
+
+	minted, err := svc.Mint(1)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	refreshed, err := svc.Refresh(minted.RefreshToken)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	if refreshed.AccessToken == minted.RefreshToken {
+		t.Error("refresh returned the presented refresh token back as the access token")
+	}
+
+	access := parseWith(t, refreshed.AccessToken, testSecret)
+	refresh := parseWith(t, refreshed.RefreshToken, testSecret)
+
+	if got := access["token_type"]; got != "access" {
+		t.Errorf("access token_type = %v, want %q", got, "access")
+	}
+	if got := refresh["token_type"]; got != "refresh" {
+		t.Errorf("refresh token_type = %v, want %q", got, "refresh")
+	}
+}
+
+// An access token must never work as a refresh token: that would let a
+// short-lived credential mint itself an unlimited stream of new pairs.
+func TestRefresh_RejectsAnAccessToken(t *testing.T) {
+	svc := business.NewTokenService(testTokenSettings())
+
+	minted, err := svc.Mint(1)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	_, err = svc.Refresh(minted.AccessToken)
+	if !errors.Is(err, entity.ErrInvalidRefreshToken) {
+		t.Fatalf("err = %v, want %v", err, entity.ErrInvalidRefreshToken)
+	}
+}
+
+func TestRefresh_RejectsGarbage(t *testing.T) {
+	svc := business.NewTokenService(testTokenSettings())
+
+	_, err := svc.Refresh("not-a-token")
+	if !errors.Is(err, entity.ErrInvalidRefreshToken) {
+		t.Fatalf("err = %v, want %v", err, entity.ErrInvalidRefreshToken)
+	}
+}
+
+func TestRefresh_RejectsATokenSignedUnderAForeignKey(t *testing.T) {
+	foreign := testTokenSettings()
+	foreign.Secret = "another-secret-that-is-long-enough"
+
+	minted, err := business.NewTokenService(foreign).Mint(1)
+	if err != nil {
+		t.Fatalf("Mint: %v", err)
+	}
+
+	_, err = business.NewTokenService(testTokenSettings()).Refresh(minted.RefreshToken)
+	if !errors.Is(err, entity.ErrInvalidRefreshToken) {
+		t.Fatalf("err = %v, want %v", err, entity.ErrInvalidRefreshToken)
+	}
+}

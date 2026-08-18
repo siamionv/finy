@@ -41,6 +41,13 @@ func (f *fakeAuth) Login(
 	return f.pair, f.err
 }
 
+func (f *fakeAuth) Refresh(
+	_ context.Context,
+	_ string,
+) (entity.TokenPair, error) {
+	return f.pair, f.err
+}
+
 func post(t *testing.T, svc auth.Authenticator, body string) *httptest.ResponseRecorder {
 	t.Helper()
 

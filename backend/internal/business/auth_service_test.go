@@ -58,6 +58,10 @@ func (f *fakeMinter) Mint(sub int) (entity.TokenPair, error) {
 	return f.pair, f.err
 }
 
+func (f *fakeMinter) Refresh(_ string) (entity.TokenPair, error) {
+	return f.pair, f.err
+}
+
 // newAuth builds the service under test with a minter the case can inspect.
 func newAuth(repo business.UserRepository) (*business.AuthService, *fakeMinter) {
 	minter := &fakeMinter{pair: entity.TokenPair{AccessToken: "access", RefreshToken: "refresh"}}

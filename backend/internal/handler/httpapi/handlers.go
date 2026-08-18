@@ -26,5 +26,6 @@ func newHandlers(deps Deps) *handlers {
 }
 
 // --- Auth ---
-func (h *handlers) RegisterUser(c echo.Context) error { return h.auth.RegisterUser(c) }
-func (h *handlers) LoginUser(c echo.Context) error    { return h.auth.LoginUser(c) }
+func (h *handlers) RegisterUser(c echo.Context) error  { return h.auth.RegisterUser(c) }
+func (h *handlers) LoginUser(c echo.Context) error     { return h.auth.LoginUser(c) }
+func (h *handlers) RefreshTokens(c echo.Context) error { return h.auth.RefreshTokens(c) }
