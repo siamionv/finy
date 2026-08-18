@@ -23,12 +23,15 @@ const (
 // class; it has to be edited together with that pattern.
 const passwordSpecialSymbols = "^$*.[]{}()?\"!@#%&/\\,><':;|_~`+=-"
 
-type UserService struct {
+// AuthService owns the two account use cases: establishing an identity, and
+// proving one. Both are single calls, so no transport has to sequence them.
+type AuthService struct {
 	userRepo UserRepository
+	tokens   TokenMinter
 }
 
-func NewUserService(userRepo UserRepository) *UserService {
-	return &UserService{userRepo: userRepo}
+func NewAuthService(userRepo UserRepository, tokens TokenMinter) *AuthService {
+	return &AuthService{userRepo: userRepo, tokens: tokens}
 }
 
 // UserRepository is declared by the consumer and kept to the methods this
@@ -38,7 +41,15 @@ type UserRepository interface {
 	GetUserByUsername(ctx context.Context, username string) (*entity.UserDB, error)
 }
 
-func (s *UserService) CreateUserByCreds(
+// TokenMinter is the slice of the token service Login needs. Declared here for
+// the same reason UserRepository is: the consumer owns the shape it depends on,
+// even when the provider is another business object.
+type TokenMinter interface {
+	Mint(sub int) (entity.TokenPair, error)
+}
+
+// Register validates the credentials and creates the account they describe.
+func (s *AuthService) Register(
 	ctx context.Context,
 	creds entity.UserCredentials,
 ) (*entity.User, error) {
@@ -74,9 +85,23 @@ func (s *UserService) CreateUserByCreds(
 	return &userDTO, nil
 }
 
-// GetUserIDByCreds only checks that both fields are present: gating login on the
+// Login verifies the credentials and mints the pair they earn. Sequencing the
+// two steps is this layer's job: a transport gets one call, not two.
+func (s *AuthService) Login(
+	ctx context.Context,
+	creds entity.UserCredentials,
+) (entity.TokenPair, error) {
+	userID, err := s.userIDByCreds(ctx, creds)
+	if err != nil {
+		return entity.TokenPair{}, err
+	}
+
+	return s.tokens.Mint(userID)
+}
+
+// userIDByCreds only checks that both fields are present: gating login on the
 // registration ruleset would lock out existing users the day that ruleset tightens.
-func (s *UserService) GetUserIDByCreds(
+func (s *AuthService) userIDByCreds(
 	ctx context.Context,
 	creds entity.UserCredentials,
 ) (int, error) {
@@ -96,7 +121,7 @@ func (s *UserService) GetUserIDByCreds(
 	return user.ID, nil
 }
 
-func (s *UserService) ValidateCredentials(creds entity.UserCredentials) error {
+func (s *AuthService) ValidateCredentials(creds entity.UserCredentials) error {
 	if err := validateUsername(creds.Username); err != nil {
 		return err
 	}

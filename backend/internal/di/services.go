@@ -9,18 +9,18 @@ import (
 // Services is the use-case layer, and the only slice of the graph a transport is
 // handed. Each consumer narrows these concrete types to its own interface.
 type Services struct {
-	User  *business.UserService
-	Token *business.TokenService
+	Auth *business.AuthService
 }
 
 // newServices assembles the graph. Construction is pure: no I/O, no ordering.
 func newServices(config *config.Config, repos repositories) Services {
+	tokens := business.NewTokenService(entity.TokenSettings{
+		Secret:     config.JWT.Secret,
+		AccessTTL:  config.JWT.AccessTokenTimeout,
+		RefreshTTL: config.JWT.RefreshTokenTimeout,
+	})
+
 	return Services{
-		User: business.NewUserService(repos.user),
-		Token: business.NewTokenService(entity.TokenSettings{
-			Secret:     config.JWT.Secret,
-			AccessTTL:  config.JWT.AccessTokenTimeout,
-			RefreshTTL: config.JWT.RefreshTokenTimeout,
-		}),
+		Auth: business.NewAuthService(repos.user, tokens),
 	}
 }

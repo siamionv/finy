@@ -51,6 +51,11 @@ IMPORTANT: transport layer is not and orchestrator of business logic. It must
 call only one business method at a time. Its business layer responsibility to jungle
 business rules and etc.
 
+So one endpoint means exactly one business call. If an operation needs two
+business steps, that sequencing belongs in a business method that owns both —
+never in the handler. Login is the example: it verifies credentials and mints
+tokens, and the handler sees one call.
+
 #### /internal/business
 Business layer. All service implementation goes there. All business rules like
 validation, data transformation, data aggregation, algorithm orchestrastion
@@ -74,6 +79,20 @@ this layer will become a total mess.
 ## Dependency defenition
 Each time layer needs something that is not in its domain interface should be
 declared.
+
+Interface is always declared by the consumer, never by the provider, and holds
+only the methods that consumer actually calls. The provider satisfies it
+implicitly. /internal/di is the only place that knows both sides.
+
+Name the interface after the capability the consumer needs, not after the type
+that happens to provide it. `Authenticator`, not `UserService`: the transport
+asks for "something that can register and log in", and stays untouched when the
+business layer reshapes which object provides that.
+
+This rule holds inside a layer too. A business object that needs another
+business object declares its own narrow interface for it — same as it does for
+an adapter. See business.TokenMinter, declared by AuthService for the token
+service it mints through.
 
 ## Errors
 Every error declared on our side should be of type *cerr.Error. We must this and

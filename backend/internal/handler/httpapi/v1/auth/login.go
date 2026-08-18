@@ -25,21 +25,9 @@ func (h *Handler) LoginUser(c echo.Context) error {
 		}, err)
 	}
 
-	userID, err := h.userSvc.GetUserIDByCreds(
-		c.Request().Context(),
-		credentialsFromRequest(request),
-	)
+	tokenPair, err := h.auth.Login(c.Request().Context(), credentialsFromRequest(request))
 	if err != nil {
 		return h.handleLoginUserError(c, err)
-	}
-
-	tokenPair, err := h.tokenSvc.Mint(userID)
-	if err != nil {
-		// The credentials were right; only our own signing failed.
-		return fail(c, http.StatusInternalServerError, openapi.Envelope{
-			Status: openapi.Failure,
-			Error:  new("failed to issue tokens"),
-		}, err)
 	}
 
 	response := tokenPairToResponse(tokenPair)
@@ -75,7 +63,7 @@ func (h *Handler) handleLoginUserError(c echo.Context, err error) error {
 	return fail(c, http.StatusInternalServerError, openapi.Envelope{
 		Status: openapi.Failure,
 		Error:  new("failed to login user"),
-	}, cerr.New("unclassified error from GetUserIDByCreds", err, cerr.Internal).Loc().Time())
+	}, cerr.New("unclassified error from Login", err, cerr.Internal).Loc().Time())
 }
 
 // isCredentialsRuleError reports whether err is one of the credential rules. They

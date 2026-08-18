@@ -13,35 +13,30 @@ import (
 
 // Handler serves every Auth operation: one type per tag, one file per operation.
 type Handler struct {
-	logger   *slog.Logger
-	userSvc  UserService
-	tokenSvc TokenService
+	logger *slog.Logger
+	auth   Authenticator
 }
 
 // Deps is what this group needs to serve its operations.
 type Deps struct {
-	Logger       *slog.Logger
-	UserService  UserService
-	TokenService TokenService
+	Logger        *slog.Logger
+	Authenticator Authenticator
 }
 
 func New(deps Deps) *Handler {
 	return &Handler{
-		logger:   deps.Logger,
-		userSvc:  deps.UserService,
-		tokenSvc: deps.TokenService,
+		logger: deps.Logger,
+		auth:   deps.Authenticator,
 	}
 }
 
-// UserService is the slice of the service layer this group uses, declared here so
-// the group depends on a shape it owns rather than on business.
-type UserService interface {
-	CreateUserByCreds(ctx context.Context, creds entity.UserCredentials) (*entity.User, error)
-	GetUserIDByCreds(ctx context.Context, creds entity.UserCredentials) (int, error)
-}
-
-type TokenService interface {
-	Mint(sub int) (entity.TokenPair, error)
+// Authenticator is what this group needs of the business layer: one method per
+// operation it serves. Named for the capability required, not for the type that
+// happens to provide it, so the business layer can be reshaped without touching
+// this package.
+type Authenticator interface {
+	Register(ctx context.Context, creds entity.UserCredentials) (*entity.User, error)
+	Login(ctx context.Context, creds entity.UserCredentials) (entity.TokenPair, error)
 }
 
 // fail renders body to the client and hands err back up to the single log site in

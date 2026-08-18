@@ -3,7 +3,6 @@ package auth_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,42 +19,35 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// fakeUserService answers with whatever the case under test needs the service
-// layer to have produced, stamped the way the real one stamps it.
-type fakeUserService struct {
+// fakeAuth answers with whatever the case under test needs the business layer to
+// have produced, stamped the way the real one stamps it.
+type fakeAuth struct {
 	user *entity.User
+	pair entity.TokenPair
 	err  error
 }
 
-func (f *fakeUserService) CreateUserByCreds(
+func (f *fakeAuth) Register(
 	_ context.Context,
 	_ entity.UserCredentials,
 ) (*entity.User, error) {
 	return f.user, f.err
 }
 
-func (f *fakeUserService) GetUserIDByCreds(
+func (f *fakeAuth) Login(
 	_ context.Context,
 	_ entity.UserCredentials,
-) (int, error) {
-	// err first: a case that only sets err has no user to read an id from.
-	if f.err != nil {
-		return 0, f.err
-	}
-	if f.user == nil {
-		return 0, errors.New("fakeUserService: no user configured")
-	}
-
-	return f.user.ID, nil
+) (entity.TokenPair, error) {
+	return f.pair, f.err
 }
 
-func post(t *testing.T, svc auth.UserService, body string) *httptest.ResponseRecorder {
+func post(t *testing.T, svc auth.Authenticator, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	e := echo.New()
 	e.POST("/api/v1/auth/register", auth.New(auth.Deps{
-		Logger:      slog.New(slog.DiscardHandler),
-		UserService: svc,
+		Logger:        slog.New(slog.DiscardHandler),
+		Authenticator: svc,
 	}).RegisterUser)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
@@ -84,7 +76,7 @@ const validBody = `{"username":"johndoe","password":"Correct9Horse!"}`
 // already enveloped: a client switching on `status` must not break on success.
 func TestRegisterUser_Created(t *testing.T) {
 	created := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
-	rec := post(t, &fakeUserService{
+	rec := post(t, &fakeAuth{
 		user: &entity.User{ID: 142, Username: "johndoe", CreatedAt: created},
 	}, validBody)
 
@@ -150,7 +142,7 @@ func TestRegisterUser_ValidationFailureIsRendered(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Stamped exactly as the service stamps it.
-			rec := post(t, &fakeUserService{err: tc.err.Loc().Time()}, validBody)
+			rec := post(t, &fakeAuth{err: tc.err.Loc().Time()}, validBody)
 
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)
@@ -171,7 +163,7 @@ func TestRegisterUser_ValidationFailureIsRendered(t *testing.T) {
 }
 
 func TestRegisterUser_Conflict(t *testing.T) {
-	rec := post(t, &fakeUserService{
+	rec := post(t, &fakeAuth{
 		err: entity.ErrUserAlreadyExist.Loc().Time().With("username", "johndoe"),
 	}, validBody)
 
@@ -184,7 +176,7 @@ func TestRegisterUser_Conflict(t *testing.T) {
 }
 
 func TestRegisterUser_InternalFailure(t *testing.T) {
-	rec := post(t, &fakeUserService{err: entity.ErrFailedToCreateUser}, validBody)
+	rec := post(t, &fakeAuth{err: entity.ErrFailedToCreateUser}, validBody)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d, want 500 (%s)", rec.Code, rec.Body)
@@ -192,7 +184,7 @@ func TestRegisterUser_InternalFailure(t *testing.T) {
 }
 
 func TestRegisterUser_MalformedPayload(t *testing.T) {
-	rec := post(t, &fakeUserService{}, `{"username":`)
+	rec := post(t, &fakeAuth{}, `{"username":`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body)

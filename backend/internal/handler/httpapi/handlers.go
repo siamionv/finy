@@ -19,9 +19,8 @@ var _ openapi.ServerInterface = (*handlers)(nil)
 func newHandlers(deps Deps) *handlers {
 	return &handlers{
 		auth: auth.New(auth.Deps{
-			Logger:       deps.Logger,
-			UserService:  deps.UserService,
-			TokenService: deps.TokenService,
+			Logger:        deps.Logger,
+			Authenticator: deps.Authenticator,
 		}),
 	}
 }

@@ -17,7 +17,7 @@ func (h *Handler) RegisterUser(c echo.Context) error {
 		return h.handleRegisterUserInvalidPayload(c, err)
 	}
 
-	user, err := h.userSvc.CreateUserByCreds(c.Request().Context(), credentialsFromRequest(request))
+	user, err := h.auth.Register(c.Request().Context(), credentialsFromRequest(request))
 	if err != nil {
 		return h.handleCreateUserError(c, err)
 	}
@@ -125,7 +125,7 @@ func (h *Handler) handleCreateUserError(c echo.Context, err error) error {
 		return fail(c, http.StatusInternalServerError, openapi.Envelope{
 			Status: openapi.Failure,
 			Error:  new("failed to create user"),
-		}, cerr.New("unclassified error from CreateUser", err, cerr.Internal).Loc().Time())
+		}, cerr.New("unclassified error from Register", err, cerr.Internal).Loc().Time())
 	}
 
 	return fail(c, http.StatusBadRequest, openapi.EnvelopedValidationError{
