@@ -131,15 +131,20 @@ func (s *AuthService) userIDByCreds(
 }
 
 func (s *AuthService) ValidateCredentials(creds entity.UserCredentials) error {
+	var errs []error
+
 	if err := validateUsername(creds.Username); err != nil {
-		return err
+		errs = append(errs, err)
 	}
-
 	if err := validatePassword(creds.Password); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
-	return nil
+	if len(errs) == 0 {
+		return nil
+	}
+
+	return cerr.New("invalid credentials", errs...).Loc().Time()
 }
 
 // isLatinLetter is narrower than unicode.IsLetter on purpose: the spec's
@@ -151,31 +156,48 @@ func isLatinLetter(r rune) bool {
 func isDigit(r rune) bool { return r >= '0' && r <= '9' }
 
 func validateUsername(username string) error {
+	var errs []error
+
 	// Runes, not bytes: the length the client is told about is the one it counts.
 	if utf8.RuneCountInString(username) < usernameMinLength {
-		return entity.ErrUsernameTooShort.Loc().Time()
+		errs = append(errs, entity.ErrUsernameTooShort)
 	}
+
+	var invalidStart, invalidChars bool
 
 	// i is a byte offset, so i == 0 is the first rune whatever its width.
 	for i, r := range username {
 		if i == 0 && !isLatinLetter(r) {
-			return entity.ErrUsernameInvalidStart.Loc().Time()
+			invalidStart = true
 		}
 
 		if !isLatinLetter(r) && !isDigit(r) && r != '_' && r != '-' {
-			return entity.ErrUsernameInvalidCharacters.Loc().Time()
+			invalidChars = true
 		}
 	}
 
-	return nil
+	if invalidStart {
+		errs = append(errs, entity.ErrUsernameInvalidStart)
+	}
+	if invalidChars {
+		errs = append(errs, entity.ErrUsernameInvalidCharacters)
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+
+	return cerr.New("invalid username", errs...).Loc().Time()
 }
 
 func validatePassword(password string) error {
+	var errs []error
+
 	if utf8.RuneCountInString(password) < passwordMinLength {
-		return entity.ErrPasswordTooShort.Loc().Time()
+		errs = append(errs, entity.ErrPasswordTooShort)
 	}
 
-	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	var hasUpper, hasLower, hasDigit, hasSpecial, hasInvalid bool
 
 	for _, r := range password {
 		switch {
@@ -188,27 +210,31 @@ func validatePassword(password string) error {
 		case strings.ContainsRune(passwordSpecialSymbols, r):
 			hasSpecial = true
 		default:
-			return entity.ErrPasswordInvalidCharacters.Loc().Time()
+			hasInvalid = true
 		}
 	}
 
+	if hasInvalid {
+		errs = append(errs, entity.ErrPasswordInvalidCharacters)
+	}
 	if !hasUpper {
-		return entity.ErrPasswordMissingUppercase.Loc().Time()
+		errs = append(errs, entity.ErrPasswordMissingUppercase)
 	}
-
 	if !hasLower {
-		return entity.ErrPasswordMissingLowercase.Loc().Time()
+		errs = append(errs, entity.ErrPasswordMissingLowercase)
 	}
-
 	if !hasDigit {
-		return entity.ErrPasswordMissingDigit.Loc().Time()
+		errs = append(errs, entity.ErrPasswordMissingDigit)
 	}
-
 	if !hasSpecial {
-		return entity.ErrPasswordMissingSpecialSymbol.Loc().Time()
+		errs = append(errs, entity.ErrPasswordMissingSpecialSymbol)
 	}
 
-	return nil
+	if len(errs) == 0 {
+		return nil
+	}
+
+	return cerr.New("invalid password", errs...).Loc().Time()
 }
 
 // hashPassword derives what goes to the database; only the digest is ever stored.

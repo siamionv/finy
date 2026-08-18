@@ -94,3 +94,6 @@ EXCLUSION: the only log level that can be put everywhere is Debug.
 ## Comments
 
 Don't use a lot of comments. Brevity is the soul of wit. Don't comment the code because code itself should be really documenting itself. Use comments only at components declarations like structs, interfaces, funcs and etc. But don't write multi-line poems.
+
+## API and Infrastructure running
+Don't start service or run any docker infra yourself.

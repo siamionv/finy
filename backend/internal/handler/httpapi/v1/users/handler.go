@@ -1,6 +1,6 @@
 // Package user serves the operations tagged Users in the OpenAPI spec. Handlers
 // here stay thin: read the request, delegate to the service, render.
-package user
+package users
 
 import (
 	"context"
