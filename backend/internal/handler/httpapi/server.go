@@ -14,6 +14,7 @@ import (
 	"github.com/siamionv/finy/internal/config"
 	"github.com/siamionv/finy/internal/generated/openapi"
 	"github.com/siamionv/finy/internal/handler/httpapi/authn"
+	"github.com/siamionv/finy/internal/handler/httpapi/docs"
 	"github.com/siamionv/finy/internal/handler/httpapi/v1/auth"
 	"github.com/siamionv/finy/internal/handler/httpapi/v1/user"
 )
@@ -73,6 +74,10 @@ func New(deps Deps) (*Server, error) {
 	openapi.RegisterHandlersWithOptions(e, newHandlers(deps), openapi.RegisterHandlersOptions{
 		OperationMiddlewares: guarded,
 	})
+
+	docsHandler := docs.New()
+	e.GET("/docs", docsHandler.Index)
+	e.GET("/docs/openapi.json", docsHandler.Spec)
 
 	return &Server{
 		echo:          e,

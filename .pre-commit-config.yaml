@@ -1,6 +1,13 @@
 repos:
   - repo: local
     hooks:
+      - id: backend-swagger
+        name: backend swagger (make swagger)
+        entry: bash -c 'cd backend && make swagger'
+        language: system
+        files: ^backend/docs/openapi\.yaml$
+        pass_filenames: false
+
       - id: backend-fmt
         name: backend fmt (make fmt)
         entry: bash -c 'cd backend && make fmt'
