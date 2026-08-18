@@ -55,6 +55,7 @@ func run() int {
 		Config:        cfg.HTTP,
 		Logger:        deps.Logger,
 		Authenticator: deps.Services.Auth,
+		ProfileReader: deps.Services.Users,
 		TokenVerifier: deps.Services.Tokens,
 	})
 	if err != nil {

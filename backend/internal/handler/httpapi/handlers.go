@@ -5,12 +5,14 @@ import (
 
 	"github.com/siamionv/finy/internal/generated/openapi"
 	"github.com/siamionv/finy/internal/handler/httpapi/v1/auth"
+	"github.com/siamionv/finy/internal/handler/httpapi/v1/user"
 )
 
 // handlers implements the generated openapi.ServerInterface. It holds no logic:
 // every operation delegates to the handler group that owns its OpenAPI tag.
 type handlers struct {
 	auth *auth.Handler
+	user *user.Handler
 }
 
 // Fails the build the moment codegen adds an operation nobody delegates.
@@ -22,6 +24,10 @@ func newHandlers(deps Deps) *handlers {
 			Logger:        deps.Logger,
 			Authenticator: deps.Authenticator,
 		}),
+		user: user.New(user.Deps{
+			Logger:        deps.Logger,
+			ProfileReader: deps.ProfileReader,
+		}),
 	}
 }
 
@@ -29,3 +35,6 @@ func newHandlers(deps Deps) *handlers {
 func (h *handlers) RegisterUser(c echo.Context) error  { return h.auth.RegisterUser(c) }
 func (h *handlers) LoginUser(c echo.Context) error     { return h.auth.LoginUser(c) }
 func (h *handlers) RefreshTokens(c echo.Context) error { return h.auth.RefreshTokens(c) }
+
+// --- Users ---
+func (h *handlers) GetCurrentUser(c echo.Context) error { return h.user.GetCurrentUser(c) }

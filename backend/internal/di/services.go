@@ -10,6 +10,7 @@ import (
 // handed. Each consumer narrows these concrete types to its own interface.
 type Services struct {
 	Auth   *business.AuthService
+	Users  *business.UserService
 	Tokens *business.TokenService
 }
 
@@ -23,6 +24,7 @@ func newServices(config *config.Config, repos repositories) Services {
 
 	return Services{
 		Auth:   business.NewAuthService(repos.user, tokens),
+		Users:  business.NewUserService(repos.user),
 		Tokens: tokens,
 	}
 }

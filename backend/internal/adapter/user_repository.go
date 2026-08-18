@@ -81,6 +81,25 @@ func buildGetUserByUsernameQuery(username string) (string, []any, error) {
 	return sql, args, nil
 }
 
+// buildGetUserByIDQuery builds the SQL and args to select a user by id.
+func buildGetUserByIDQuery(id int) (string, []any, error) {
+	sql, args, err := sq.Select(usersColID, usersColUsername, usersColPasswordHash, usersColIconURL, usersColCreatedAt).
+		PlaceholderFormat(sq.Dollar).
+		From(usersTable).
+		Where(sq.Eq{usersColID: id}).
+		ToSql()
+	if err != nil {
+		// Internal, not Invalid: the query is built from values we control.
+		return "", nil, entity.ErrFailedToBuildQuery.
+			Join(err).
+			Loc().
+			Time().
+			With("table", usersTable)
+	}
+
+	return sql, args, nil
+}
+
 func (r *UserRepository) InsertUser(
 	ctx context.Context,
 	dto entity.CreateUser,
@@ -130,6 +149,34 @@ func (r *UserRepository) GetUserByUsername(
 			Loc().
 			Time().
 			With("table", usersTable, "username", username)
+	}
+
+	return &user, nil
+}
+
+func (r *UserRepository) GetUserByID(
+	ctx context.Context,
+	id int,
+) (*entity.UserDB, error) {
+	sql, args, err := buildGetUserByIDQuery(id)
+	if err != nil {
+		return nil, err
+	}
+
+	var user entity.UserDB
+	if err := r.db.QueryRow(ctx, sql, args...).
+		Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IconURL, &user.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, entity.ErrUserNotFound.
+				Loc().
+				Time().
+				With("table", usersTable, "user_id", id)
+		}
+
+		return nil, cerr.New("failed to select user", err, cerr.Internal).
+			Loc().
+			Time().
+			With("table", usersTable, "user_id", id)
 	}
 
 	return &user, nil

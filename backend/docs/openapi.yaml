@@ -115,6 +115,37 @@ paths:
               schema:
                 $ref: '#/components/schemas/Envelope'
       servers: []
+  /api/v1/users/me:
+    get:
+      summary: Get Current User
+      tags:
+        - Users
+      operationId: get-current-user
+      description: Return the account the presented access token belongs to.
+      security:
+        - jwt-auth: []
+      responses:
+        '200':
+          description: Current User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopedUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: User Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '500':
+          description: Failed to Get Current User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+      servers: []
 components:
   schemas:
     Envelope:
